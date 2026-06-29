@@ -6,4 +6,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Nurtricenter.Core\Nurtricenter.Core.csproj" />
+  </ItemGroup>
+
 </Project>
