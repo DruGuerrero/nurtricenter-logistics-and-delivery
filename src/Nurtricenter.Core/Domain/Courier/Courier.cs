@@ -1,11 +1,11 @@
-#pragma warning disable CS8618 // Parameterless constructor for serialization
+#pragma warning disable CS8618 // Private parameterless ctor for serialization
 
 namespace Nurtricenter.Core.Domain.Courier;
 
-using Nurtricenter.Core.Domain.Base;
+using Joseco.DDD.Core.Abstractions;
 using Nurtricenter.Core.Domain.Courier.Enums;
 
-public sealed class Courier : Entity<Guid>
+public sealed class Courier : Entity
 {
     public string FullName { get; private set; }
     public CourierStatus Status { get; private set; }
@@ -20,7 +20,7 @@ public sealed class Courier : Entity<Guid>
         Status = status;
     }
 
-    private Courier() : base(Guid.Empty) { }
+    private Courier() : base() { }
 
     public void SetStatus(CourierStatus status)
     {

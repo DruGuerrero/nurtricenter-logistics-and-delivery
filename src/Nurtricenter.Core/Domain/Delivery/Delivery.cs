@@ -1,12 +1,12 @@
-#pragma warning disable CS8618 // Parameterless constructor for serialization
+#pragma warning disable CS8618 // Private parameterless ctor for serialization
 
 namespace Nurtricenter.Core.Domain.Delivery;
 
-using Nurtricenter.Core.Domain.Base;
+using Joseco.DDD.Core.Abstractions;
 using Nurtricenter.Core.Domain.Delivery.Enums;
 using Nurtricenter.Core.Domain.Delivery.ValueObjects;
 
-public sealed class Delivery : AggregateRoot<Guid>
+public sealed class Delivery : AggregateRoot
 {
     public Guid RouteId { get; private set; }
     public ValidatedPackage Package { get; private set; }
@@ -30,7 +30,7 @@ public sealed class Delivery : AggregateRoot<Guid>
         Status = DeliveryStatus.Pending;
     }
 
-    private Delivery() : base(Guid.Empty) { }
+    private Delivery() : base() { }
 
     public void RegisterSuccessfulDelivery(DeliveryConfirmation confirmation)
     {

@@ -1,10 +1,10 @@
 namespace Nurtricenter.Core.Domain.Route;
 
-using Nurtricenter.Core.Domain.Base;
+using Joseco.DDD.Core.Abstractions;
 using Nurtricenter.Core.Domain.Route.Enums;
 using DeliveryEntity = Nurtricenter.Core.Domain.Delivery.Delivery;
 
-public sealed class Route : AggregateRoot<Guid>
+public sealed class Route : AggregateRoot
 {
     private readonly List<DeliveryEntity> _deliveries = new();
 
@@ -21,7 +21,7 @@ public sealed class Route : AggregateRoot<Guid>
         Status = RouteStatus.Pending;
     }
 
-    private Route() : base(Guid.Empty) { }
+    private Route() : base() { }
 
     public void AssignCourier(Guid courierId)
     {
