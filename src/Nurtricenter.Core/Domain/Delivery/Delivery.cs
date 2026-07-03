@@ -4,6 +4,7 @@ namespace Nurtricenter.Core.Domain.Delivery;
 
 using Joseco.DDD.Core.Abstractions;
 using Nurtricenter.Core.Domain.Delivery.Enums;
+using Nurtricenter.Core.Domain.Delivery.Events;
 using Nurtricenter.Core.Domain.Delivery.ValueObjects;
 
 public sealed class Delivery : AggregateRoot
@@ -28,6 +29,8 @@ public sealed class Delivery : AggregateRoot
         Package = package;
         Address = address;
         Status = DeliveryStatus.Pending;
+
+        AddDomainEvent(new DeliveryCreatedEvent(id, routeId, package.PackageId, package.PatientId));
     }
 
     private Delivery() : base() { }
@@ -42,6 +45,8 @@ public sealed class Delivery : AggregateRoot
 
         Confirmation = confirmation;
         Status = DeliveryStatus.Delivered;
+
+        AddDomainEvent(new DeliveryCompletedEvent(Id, RouteId, confirmation.DeliveredAt));
     }
 
     public void RegisterFailedDelivery(string reason)
@@ -54,5 +59,7 @@ public sealed class Delivery : AggregateRoot
                 $"Cannot register a failed delivery when the delivery is {Status}.");
 
         Status = DeliveryStatus.Failed;
+
+        AddDomainEvent(new DeliveryFailedEvent(Id, RouteId, reason));
     }
 }

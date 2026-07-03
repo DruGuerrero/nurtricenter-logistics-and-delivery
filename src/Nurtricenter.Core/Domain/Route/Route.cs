@@ -2,6 +2,7 @@ namespace Nurtricenter.Core.Domain.Route;
 
 using Joseco.DDD.Core.Abstractions;
 using Nurtricenter.Core.Domain.Route.Enums;
+using Nurtricenter.Core.Domain.Route.Events;
 using DeliveryEntity = Nurtricenter.Core.Domain.Delivery.Delivery;
 
 public sealed class Route : AggregateRoot
@@ -19,6 +20,8 @@ public sealed class Route : AggregateRoot
         CourierId = courierId;
         ScheduledDate = scheduledDate;
         Status = RouteStatus.Pending;
+
+        AddDomainEvent(new RouteCreatedEvent(id, courierId, scheduledDate));
     }
 
     private Route() : base() { }
@@ -29,6 +32,8 @@ public sealed class Route : AggregateRoot
             throw new InvalidOperationException("Cannot assign a courier to a completed or cancelled route.");
 
         CourierId = courierId;
+
+        AddDomainEvent(new CourierAssignedToRouteEvent(Id, courierId));
     }
 
     public void StartRoute()
@@ -37,6 +42,8 @@ public sealed class Route : AggregateRoot
             throw new InvalidOperationException("Only pending routes can be started.");
 
         Status = RouteStatus.InProgress;
+
+        AddDomainEvent(new RouteStartedEvent(Id));
     }
 
     public void CompleteRoute()
@@ -45,6 +52,8 @@ public sealed class Route : AggregateRoot
             throw new InvalidOperationException("Only in-progress routes can be completed.");
 
         Status = RouteStatus.Completed;
+
+        AddDomainEvent(new RouteCompletedEvent(Id));
     }
 
     public void CancelRoute()
@@ -53,6 +62,8 @@ public sealed class Route : AggregateRoot
             throw new InvalidOperationException("A completed route cannot be cancelled.");
 
         Status = RouteStatus.Cancelled;
+
+        AddDomainEvent(new RouteCancelledEvent(Id));
     }
 
     public void AddDelivery(DeliveryEntity delivery)
@@ -63,5 +74,7 @@ public sealed class Route : AggregateRoot
             throw new InvalidOperationException("Cannot add deliveries to a completed or cancelled route.");
 
         _deliveries.Add(delivery);
+
+        AddDomainEvent(new DeliveryAddedToRouteEvent(Id, delivery.Id));
     }
 }
