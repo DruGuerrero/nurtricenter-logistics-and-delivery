@@ -47,4 +47,5 @@ desktop.ini
 ## Local configuration / User secrets
 appsettings.local.json
 appsettings.*.local.json
+appsettings.Development.json
 secrets.json
