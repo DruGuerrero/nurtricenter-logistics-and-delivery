@@ -1,4 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using Nurtricenter.Core.Domain.Courier;
+using Nurtricenter.Core.Domain.Delivery;
+using Nurtricenter.Core.Domain.Route;
 
 namespace Nurtricenter.Infrastructure.Data;
 
@@ -9,11 +12,12 @@ public sealed class AppDbContext : DbContext
     {
     }
 
+    public DbSet<Courier> Couriers => Set<Courier>();
+    public DbSet<Delivery> Deliveries => Set<Delivery>();
+    public DbSet<Route> Routes => Set<Route>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        base.OnModelCreating(modelBuilder);
-
-        // Entity configurations will be applied here via
-        // modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
     }
 }
