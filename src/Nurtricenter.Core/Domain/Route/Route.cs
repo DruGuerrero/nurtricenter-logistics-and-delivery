@@ -1,6 +1,7 @@
 namespace Nurtricenter.Core.Domain.Route;
 
 using Joseco.DDD.Core.Abstractions;
+using Joseco.DDD.Core.Results;
 using Nurtricenter.Core.Domain.Delivery.ValueObjects;
 using Nurtricenter.Core.Domain.Route.Enums;
 using Nurtricenter.Core.Domain.Route.Events;
@@ -30,7 +31,11 @@ public sealed class Route : AggregateRoot
     public void AssignCourier(Guid courierId)
     {
         if (Status == RouteStatus.Completed || Status == RouteStatus.Cancelled || Status == RouteStatus.InProgress)
-            throw new InvalidOperationException("Cannot assign a courier to a completed, cancelled or in progress route.");
+            throw new DomainException(
+                Error.Problem(
+                    "Route.CannotAssignCourier",
+                    "Cannot assign a courier to a {status} route.",
+                    Status.ToString()));
 
         CourierId = courierId;
 
@@ -39,11 +44,26 @@ public sealed class Route : AggregateRoot
 
     public void AddDelivery(ValidatedPackage package, DeliveryAddress address)
     {
-        ArgumentNullException.ThrowIfNull(package);
-        ArgumentNullException.ThrowIfNull(address);
+        if (package is null)
+            throw new DomainException(
+                new Error(
+                    "Route.NullPackage",
+                    "Package is required.",
+                    ErrorType.Validation));
+
+        if (address is null)
+            throw new DomainException(
+                new Error(
+                    "Route.NullAddress",
+                    "Address is required.",
+                    ErrorType.Validation));
 
         if (Status == RouteStatus.Completed || Status == RouteStatus.Cancelled)
-            throw new InvalidOperationException("Cannot add deliveries to a completed or cancelled route.");
+            throw new DomainException(
+                Error.Problem(
+                    "Route.CannotAddDelivery",
+                    "Cannot add deliveries to a {status} route.",
+                    Status.ToString()));
 
         var delivery = new DeliveryEntity(Guid.NewGuid(), package, address);
         delivery.RouteId = Id;
@@ -56,7 +76,11 @@ public sealed class Route : AggregateRoot
     public void StartRoute()
     {
         if (Status != RouteStatus.Pending)
-            throw new InvalidOperationException("Only pending routes can be started.");
+            throw new DomainException(
+                Error.Problem(
+                    "Route.CannotStart",
+                    "Only pending routes can be started. Current status: {status}.",
+                    Status.ToString()));
 
         Status = RouteStatus.InProgress;
 
@@ -71,11 +95,17 @@ public sealed class Route : AggregateRoot
     public void CompleteRoute()
     {
         if (Status != RouteStatus.InProgress)
-            throw new InvalidOperationException("Only in-progress routes can be completed.");
+            throw new DomainException(
+                Error.Problem(
+                    "Route.CannotComplete",
+                    "Only in-progress routes can be completed. Current status: {status}.",
+                    Status.ToString()));
 
         if (_deliveries.Any(d => !d.IsTerminal))
-            throw new InvalidOperationException(
-                "Cannot complete a route with pending or in-progress deliveries.");
+            throw new DomainException(
+                Error.Problem(
+                    "Route.HasPendingDeliveries",
+                    "Cannot complete a route with pending or in-progress deliveries."));
 
         Status = RouteStatus.Completed;
 
@@ -85,7 +115,11 @@ public sealed class Route : AggregateRoot
     public void CancelRoute()
     {
         if (Status == RouteStatus.Completed || Status == RouteStatus.Cancelled)
-            throw new InvalidOperationException("A completed/cancelled route cannot be cancelled.");
+            throw new DomainException(
+                Error.Problem(
+                    "Route.CannotCancel",
+                    "A {status} route cannot be cancelled.",
+                    Status.ToString()));
 
         foreach (var delivery in _deliveries.Where(d => !d.IsTerminal))
         {
@@ -99,7 +133,12 @@ public sealed class Route : AggregateRoot
 
     public void CompleteDelivery(Guid deliveryId, DeliveryConfirmation confirmation)
     {
-        ArgumentNullException.ThrowIfNull(confirmation);
+        if (confirmation is null)
+            throw new DomainException(
+                new Error(
+                    "Route.NullConfirmation",
+                    "Delivery confirmation is required.",
+                    ErrorType.Validation));
 
         var delivery = FindDelivery(deliveryId);
         delivery.RegisterSuccessfulDelivery(confirmation);
@@ -108,7 +147,11 @@ public sealed class Route : AggregateRoot
     public void FailDelivery(Guid deliveryId, string reason)
     {
         if (string.IsNullOrWhiteSpace(reason))
-            throw new ArgumentException("Failure reason cannot be empty.", nameof(reason));
+            throw new DomainException(
+                new Error(
+                    "Route.EmptyFailureReason",
+                    "Failure reason cannot be empty.",
+                    ErrorType.Validation));
 
         var delivery = FindDelivery(deliveryId);
         delivery.RegisterFailedDelivery(reason);
@@ -119,8 +162,11 @@ public sealed class Route : AggregateRoot
         var delivery = _deliveries.FirstOrDefault(d => d.Id == deliveryId);
 
         if (delivery is null)
-            throw new ArgumentException(
-                $"Delivery '{deliveryId}' not found in this route.", nameof(deliveryId));
+            throw new DomainException(
+                Error.NotFound(
+                    "Route.DeliveryNotFound",
+                    "Delivery '{deliveryId}' not found in this route.",
+                    deliveryId.ToString()));
 
         return delivery;
     }

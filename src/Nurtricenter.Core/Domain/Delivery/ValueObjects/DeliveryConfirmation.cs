@@ -2,6 +2,8 @@
 
 namespace Nurtricenter.Core.Domain.Delivery.ValueObjects;
 
+using Joseco.DDD.Core.Results;
+
 public sealed record DeliveryConfirmation
 {
     public DateTime DeliveredAt { get; }
@@ -11,9 +13,18 @@ public sealed record DeliveryConfirmation
     public DeliveryConfirmation(DateTime deliveredAt, string evidencePhotoUrl, string digitalSignature)
     {
         if (string.IsNullOrWhiteSpace(evidencePhotoUrl))
-            throw new ArgumentException("Evidence photo URL cannot be empty.", nameof(evidencePhotoUrl));
+            throw new DomainException(
+                new Error(
+                    "DeliveryConfirmation.EmptyEvidenceUrl",
+                    "Evidence photo URL cannot be empty.",
+                    ErrorType.Validation));
+
         if (string.IsNullOrWhiteSpace(digitalSignature))
-            throw new ArgumentException("Digital signature cannot be empty.", nameof(digitalSignature));
+            throw new DomainException(
+                new Error(
+                    "DeliveryConfirmation.EmptySignature",
+                    "Digital signature cannot be empty.",
+                    ErrorType.Validation));
 
         DeliveredAt = deliveredAt;
         EvidencePhotoUrl = evidencePhotoUrl;

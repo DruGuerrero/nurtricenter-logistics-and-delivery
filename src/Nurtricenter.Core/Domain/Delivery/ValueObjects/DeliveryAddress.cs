@@ -2,6 +2,8 @@
 
 namespace Nurtricenter.Core.Domain.Delivery.ValueObjects;
 
+using Joseco.DDD.Core.Results;
+
 public sealed record DeliveryAddress
 {
     public string Description { get; }
@@ -10,10 +12,21 @@ public sealed record DeliveryAddress
     public DeliveryAddress(string description, Coordinate planarCoordinate)
     {
         if (string.IsNullOrWhiteSpace(description))
-            throw new ArgumentException("Description cannot be empty.", nameof(description));
+            throw new DomainException(
+                new Error(
+                    "DeliveryAddress.EmptyDescription",
+                    "Description cannot be empty.",
+                    ErrorType.Validation));
+
+        if (planarCoordinate is null)
+            throw new DomainException(
+                new Error(
+                    "DeliveryAddress.NullCoordinate",
+                    "Planar coordinate is required.",
+                    ErrorType.Validation));
 
         Description = description;
-        PlanarCoordinate = planarCoordinate ?? throw new ArgumentNullException(nameof(planarCoordinate));
+        PlanarCoordinate = planarCoordinate;
     }
 
     private DeliveryAddress() { }
