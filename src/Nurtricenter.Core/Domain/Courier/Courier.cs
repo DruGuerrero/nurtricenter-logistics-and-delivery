@@ -4,6 +4,7 @@ namespace Nurtricenter.Core.Domain.Courier;
 
 using Joseco.DDD.Core.Abstractions;
 using Nurtricenter.Core.Domain.Courier.Enums;
+using Nurtricenter.Core.Domain.Courier.Events;
 
 public sealed class Courier : Entity
 {
@@ -18,12 +19,20 @@ public sealed class Courier : Entity
 
         FullName = fullName;
         Status = status;
+
+        AddDomainEvent(new CourierCreatedEvent(id, fullName, status));
     }
 
     private Courier() : base() { }
 
     public void SetStatus(CourierStatus status)
     {
+        if (Status == status)
+            return;
+
+        var oldStatus = Status;
         Status = status;
+
+        AddDomainEvent(new CourierStatusChangedEvent(Id, oldStatus, status));
     }
 }
