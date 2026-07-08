@@ -13,6 +13,10 @@ public static class DependencyInjection
         // FluentValidation — auto-validate requests in MVC pipeline
         services.AddFluentValidationAutoValidation();
 
+        // DomainException → HTTP ProblemDetails mapping
+        services.AddExceptionHandler<DomainExceptionHandler>();
+        services.AddProblemDetails();
+
         services.AddOpenApi();
 
         services.AddAuthorization();
@@ -22,6 +26,8 @@ public static class DependencyInjection
 
     public static WebApplication UseApiMiddleware(this WebApplication app)
     {
+        app.UseExceptionHandler();
+
         app.UseSerilogRequestLogging();
 
         if (app.Environment.IsDevelopment())

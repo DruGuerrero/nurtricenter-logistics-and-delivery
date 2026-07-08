@@ -2,6 +2,8 @@
 
 namespace Nurtricenter.Core.Domain.Delivery.ValueObjects;
 
+using Joseco.DDD.Core.Results;
+
 public sealed record ValidatedPackage
 {
     public string PackageId { get; }
@@ -11,11 +13,25 @@ public sealed record ValidatedPackage
     public ValidatedPackage(string packageId, string patientId, string labelData)
     {
         if (string.IsNullOrWhiteSpace(packageId))
-            throw new ArgumentException("Package ID cannot be empty.", nameof(packageId));
+            throw new DomainException(
+                new Error(
+                    "ValidatedPackage.EmptyPackageId",
+                    "Package ID cannot be empty.",
+                    ErrorType.Validation));
+
         if (string.IsNullOrWhiteSpace(patientId))
-            throw new ArgumentException("Patient ID cannot be empty.", nameof(patientId));
+            throw new DomainException(
+                new Error(
+                    "ValidatedPackage.EmptyPatientId",
+                    "Patient ID cannot be empty.",
+                    ErrorType.Validation));
+
         if (string.IsNullOrWhiteSpace(labelData))
-            throw new ArgumentException("Label data cannot be empty.", nameof(labelData));
+            throw new DomainException(
+                new Error(
+                    "ValidatedPackage.EmptyLabelData",
+                    "Label data cannot be empty.",
+                    ErrorType.Validation));
 
         PackageId = packageId;
         PatientId = patientId;

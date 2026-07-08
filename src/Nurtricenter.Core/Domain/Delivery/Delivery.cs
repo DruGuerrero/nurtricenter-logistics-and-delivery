@@ -3,45 +3,72 @@
 namespace Nurtricenter.Core.Domain.Delivery;
 
 using Joseco.DDD.Core.Abstractions;
+using Joseco.DDD.Core.Results;
 using Nurtricenter.Core.Domain.Delivery.Enums;
 using Nurtricenter.Core.Domain.Delivery.Events;
 using Nurtricenter.Core.Domain.Delivery.ValueObjects;
 
-public sealed class Delivery : AggregateRoot
+public sealed class Delivery : Entity
 {
-    public Guid RouteId { get; private set; }
+    public Guid RouteId { get; internal set; }
     public ValidatedPackage Package { get; private set; }
     public DeliveryAddress Address { get; private set; }
     public DeliveryStatus Status { get; private set; }
     public DeliveryConfirmation? Confirmation { get; private set; }
 
-    public Delivery(
-        Guid id,
-        Guid routeId,
-        ValidatedPackage package,
-        DeliveryAddress address)
+    public bool IsTerminal => Status == DeliveryStatus.Delivered || Status == DeliveryStatus.Failed;
+
+    internal Delivery(Guid id, ValidatedPackage package, DeliveryAddress address)
         : base(id)
     {
-        ArgumentNullException.ThrowIfNull(package);
-        ArgumentNullException.ThrowIfNull(address);
+        if (package is null)
+            throw new DomainException(
+                new Error(
+                    "Delivery.NullPackage",
+                    "Package is required.",
+                    ErrorType.Validation));
 
-        RouteId = routeId;
+        if (address is null)
+            throw new DomainException(
+                new Error(
+                    "Delivery.NullAddress",
+                    "Address is required.",
+                    ErrorType.Validation));
+
         Package = package;
         Address = address;
         Status = DeliveryStatus.Pending;
-
-        AddDomainEvent(new DeliveryCreatedEvent(id, routeId, package.PackageId, package.PatientId));
     }
 
     private Delivery() : base() { }
 
-    public void RegisterSuccessfulDelivery(DeliveryConfirmation confirmation)
+    internal void StartDelivery()
     {
-        ArgumentNullException.ThrowIfNull(confirmation);
+        if (Status != DeliveryStatus.Pending)
+            throw new DomainException(
+                Error.Problem(
+                    "Delivery.AlreadyStarted",
+                    "Cannot start a delivery that is {status}.",
+                    Status.ToString()));
+
+        Status = DeliveryStatus.InProgress;
+    }
+
+    internal void RegisterSuccessfulDelivery(DeliveryConfirmation confirmation)
+    {
+        if (confirmation is null)
+            throw new DomainException(
+                new Error(
+                    "Delivery.NullConfirmation",
+                    "Delivery confirmation is required.",
+                    ErrorType.Validation));
 
         if (Status != DeliveryStatus.InProgress && Status != DeliveryStatus.Pending)
-            throw new InvalidOperationException(
-                $"Cannot register a successful delivery when the delivery is {Status}.");
+            throw new DomainException(
+                Error.Problem(
+                    "Delivery.CannotComplete",
+                    "Cannot register a successful delivery when the delivery is {status}.",
+                    Status.ToString()));
 
         Confirmation = confirmation;
         Status = DeliveryStatus.Delivered;
@@ -49,14 +76,21 @@ public sealed class Delivery : AggregateRoot
         AddDomainEvent(new DeliveryCompletedEvent(Id, RouteId, confirmation.DeliveredAt));
     }
 
-    public void RegisterFailedDelivery(string reason)
+    internal void RegisterFailedDelivery(string reason)
     {
         if (string.IsNullOrWhiteSpace(reason))
-            throw new ArgumentException("Failure reason cannot be empty.", nameof(reason));
+            throw new DomainException(
+                new Error(
+                    "Delivery.EmptyFailureReason",
+                    "Failure reason cannot be empty.",
+                    ErrorType.Validation));
 
         if (Status != DeliveryStatus.InProgress && Status != DeliveryStatus.Pending)
-            throw new InvalidOperationException(
-                $"Cannot register a failed delivery when the delivery is {Status}.");
+            throw new DomainException(
+                Error.Problem(
+                    "Delivery.CannotFail",
+                    "Cannot register a failed delivery when the delivery is {status}.",
+                    Status.ToString()));
 
         Status = DeliveryStatus.Failed;
 

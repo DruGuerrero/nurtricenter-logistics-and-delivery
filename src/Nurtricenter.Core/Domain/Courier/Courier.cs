@@ -3,6 +3,7 @@
 namespace Nurtricenter.Core.Domain.Courier;
 
 using Joseco.DDD.Core.Abstractions;
+using Joseco.DDD.Core.Results;
 using Nurtricenter.Core.Domain.Courier.Enums;
 using Nurtricenter.Core.Domain.Courier.Events;
 
@@ -15,7 +16,11 @@ public sealed class Courier : Entity
         : base(id)
     {
         if (string.IsNullOrWhiteSpace(fullName))
-            throw new ArgumentException("Full name cannot be empty.", nameof(fullName));
+            throw new DomainException(
+                new Error(
+                    "Courier.EmptyFullName",
+                    "Full name cannot be empty.",
+                    ErrorType.Validation));
 
         FullName = fullName;
         Status = status;
