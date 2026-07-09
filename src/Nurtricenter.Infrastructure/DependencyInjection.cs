@@ -18,6 +18,8 @@ public static class DependencyInjection
         // Repositories
         services.AddScoped<Core.Domain.Courier.Repositories.ICourierRepository,
                               Data.Repositories.CourierRepository>();
+        services.AddScoped<Core.Domain.Route.Repositories.IRouteRepository,
+                              Data.Repositories.RouteRepository>();
 
         // Unit of Work
         services.AddScoped<Joseco.DDD.Core.Abstractions.IUnitOfWork, Data.UnitOfWork>();
