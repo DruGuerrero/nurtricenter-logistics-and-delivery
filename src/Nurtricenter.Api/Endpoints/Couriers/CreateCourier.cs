@@ -1,0 +1,21 @@
+namespace Nurtricenter.Api.Endpoints.Couriers;
+
+using MediatR;
+using Microsoft.AspNetCore.Mvc;
+using Nurtricenter.Application.Commands.Couriers.Create;
+
+public sealed class CreateCourier(IMediator mediator) : EndpointBaseAsync
+    .WithRequest<CreateCourierRequest>
+    .WithActionResult<CourierResponse>
+{
+    [HttpPost("/couriers")]
+    public override async Task<ActionResult<CourierResponse>> HandleAsync(
+        CreateCourierRequest request,
+        CancellationToken cancellationToken)
+    {
+        var command = new CreateCourierCommand(request.FullName);
+        var response = await mediator.Send(command, cancellationToken);
+
+        return Created($"/couriers/{response.Id}", response);
+    }
+}

@@ -15,6 +15,13 @@ public static class DependencyInjection
         services.AddDbContext<AppDbContext>(options =>
             options.UseNpgsql(configuration.GetConnectionString("DefaultConnection")));
 
+        // Repositories
+        services.AddScoped<Core.Domain.Courier.Repositories.ICourierRepository,
+                              Data.Repositories.CourierRepository>();
+
+        // Unit of Work
+        services.AddScoped<Joseco.DDD.Core.Abstractions.IUnitOfWork, Data.UnitOfWork>();
+
         return services;
     }
 }
