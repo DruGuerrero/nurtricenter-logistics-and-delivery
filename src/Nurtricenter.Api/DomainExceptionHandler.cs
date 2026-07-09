@@ -32,6 +32,13 @@ public sealed class DomainExceptionHandler : IExceptionHandler
             Type = $"https://errors.nurtricenter.com/{error.Type.ToString().ToLowerInvariant()}"
         };
 
+        if (error is ValidationError validationError)
+        {
+            problemDetails.Extensions["errors"] = validationError.Errors
+                .Select(e => new { code = e.Code, message = e.Description })
+                .ToArray();
+        }
+
         httpContext.Response.StatusCode = statusCode;
         httpContext.Response.ContentType = "application/problem+json";
 

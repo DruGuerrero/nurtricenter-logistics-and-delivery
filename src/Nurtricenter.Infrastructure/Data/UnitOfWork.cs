@@ -3,22 +3,13 @@ namespace Nurtricenter.Infrastructure.Data;
 using Joseco.DDD.Core.Abstractions;
 using MediatR;
 
-public sealed class UnitOfWork : IUnitOfWork
+public sealed class UnitOfWork(AppDbContext context, IMediator mediator) : IUnitOfWork
 {
-    private readonly AppDbContext _context;
-    private readonly IMediator _mediator;
-
-    public UnitOfWork(AppDbContext context, IMediator mediator)
-    {
-        _context = context;
-        _mediator = mediator;
-    }
-
     public async Task CommitAsync(CancellationToken cancellationToken = default)
     {
-        var entitiesWithEvents = _context.ChangeTracker
+        var entitiesWithEvents = context.ChangeTracker
             .Entries<Entity>()
-            .Where(e => e.Entity.DomainEvents.Any())
+            .Where(e => e.Entity.DomainEvents.Count > 0)
             .Select(e => e.Entity)
             .ToList();
 
@@ -26,11 +17,11 @@ public sealed class UnitOfWork : IUnitOfWork
             .SelectMany(e => e.DomainEvents)
             .ToList();
 
-        await _context.SaveChangesAsync(cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
 
         foreach (var domainEvent in domainEvents)
         {
-            await _mediator.Publish(domainEvent, cancellationToken);
+            await mediator.Publish(domainEvent, cancellationToken);
         }
 
         foreach (var entity in entitiesWithEvents)
