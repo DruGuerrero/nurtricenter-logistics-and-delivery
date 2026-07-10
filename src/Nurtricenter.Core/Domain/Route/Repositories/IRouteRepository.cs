@@ -6,6 +6,7 @@ using Nurtricenter.Core.Domain.Route;
 public interface IRouteRepository : IRepository<Route>
 {
     Task<IReadOnlyList<Route>> GetAllAsync(CancellationToken cancellationToken = default);
+    Task<Route?> GetLatestRouteForTodayAsync(DateOnly date, CancellationToken cancellationToken = default);
     Task UpdateAsync(Route route, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);
 }

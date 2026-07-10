@@ -12,6 +12,9 @@ public sealed class DeliveryConfiguration : IEntityTypeConfiguration<Delivery>
 
         builder.HasKey(d => d.Id);
 
+        builder.Property(d => d.Id)
+            .ValueGeneratedNever();
+
         builder.Ignore("DomainEvents");
 
         builder.Property(d => d.RouteId)
@@ -51,13 +54,13 @@ public sealed class DeliveryConfiguration : IEntityTypeConfiguration<Delivery>
 
             address.OwnsOne(a => a.PlanarCoordinate, coord =>
             {
-                coord.Property(c => c.X)
+                coord.Property(c => c.Latitude)
                     .IsRequired()
-                    .HasColumnName("AddressCoordinateX");
+                    .HasColumnName("AddressCoordinateLatitude");
 
-                coord.Property(c => c.Y)
+                coord.Property(c => c.Longitude)
                     .IsRequired()
-                    .HasColumnName("AddressCoordinateY");
+                    .HasColumnName("AddressCoordinateLongitude");
             });
         });
 

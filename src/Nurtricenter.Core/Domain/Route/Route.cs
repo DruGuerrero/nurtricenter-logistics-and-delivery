@@ -13,6 +13,7 @@ public sealed class Route : AggregateRoot
 
     public Guid CourierId { get; private set; }
     public DateOnly ScheduledDate { get; private set; }
+    public DateTime CreatedAt { get; private set; }
     public RouteStatus Status { get; private set; }
     public IReadOnlyList<DeliveryEntity> Deliveries => _deliveries.AsReadOnly();
 
@@ -22,6 +23,7 @@ public sealed class Route : AggregateRoot
         CourierId = courierId;
         ScheduledDate = scheduledDate;
         Status = RouteStatus.Pending;
+        CreatedAt = DateTime.UtcNow;
 
         AddDomainEvent(new RouteCreatedEvent(id, courierId, scheduledDate));
     }

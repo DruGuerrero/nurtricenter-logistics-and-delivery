@@ -22,6 +22,9 @@ public sealed class RouteConfiguration : IEntityTypeConfiguration<Route>
         builder.Property(r => r.ScheduledDate)
             .IsRequired();
 
+        builder.Property(r => r.CreatedAt)
+            .IsRequired();
+
         builder.Property(r => r.Status)
             .HasMaxLength(50)
             .HasConversion<string>()
