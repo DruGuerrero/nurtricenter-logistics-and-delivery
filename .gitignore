@@ -21,6 +21,7 @@
 !.vscode/launch.json
 !.vscode/extensions.json
 !.vscode/code-workspace
+/CLAUDE.md
 
 # JetBrains Rider / IntelliJ
 .idea/

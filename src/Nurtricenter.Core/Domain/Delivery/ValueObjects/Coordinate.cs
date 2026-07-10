@@ -2,16 +2,16 @@ namespace Nurtricenter.Core.Domain.Delivery.ValueObjects;
 
 public sealed record Coordinate
 {
-    public double X { get; }
-    public double Y { get; }
+    public double Latitude { get; }
+    public double Longitude { get; }
 
-    public Coordinate(double x, double y)
+    public Coordinate(double latitude, double longitude)
     {
-        X = x;
-        Y = y;
+        Latitude = latitude;
+        Longitude = longitude;
     }
 
     private Coordinate() { }
 
-    public override string ToString() => $"({X}, {Y})";
+    public override string ToString() => $"({Latitude}, {Longitude})";
 }
