@@ -20,20 +20,16 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // EF Core — NEON (PostgreSQL)
         services.AddDbContext<AppDbContext>(options =>
             options.UseNpgsql(configuration.GetConnectionString("DefaultConnection")));
 
-        // Repositories
         services.AddScoped<ICourierRepository,
                               CourierRepository>();
         services.AddScoped<IRouteRepository,
                               RouteRepository>();
 
-        // Unit of Work
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
-        // Options
         services.Configure<ClinicServiceOptions>(
             configuration.GetSection(ClinicServiceOptions.SectionName));
 
