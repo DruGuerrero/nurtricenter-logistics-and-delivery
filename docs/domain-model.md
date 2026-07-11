@@ -1,68 +1,140 @@
+# Domain Model
+
 ```mermaid
 classDiagram
-    %% Definición de Agregados y Entidades
-    class Ruta {
-        <<Aggregate Root>>
-        -UUID id
-        -UUID repartidorId
-        -Date fechaProgramada
-        -EstadoRuta estado
-        +asignarRepartidor(UUID repartidorId)
-        +iniciarRuta()
-        +completarRuta()
+    %% ── Aggregate Root ──────────────────────────────────────────
+    class Route {
+        &lt;&lt;AggregateRoot&gt;&gt;
+        +Guid Id
+        +Guid CourierId
+        +DateOnly ScheduledDate
+        +DateTime CreatedAt
+        +RouteStatus Status
+        +IReadOnlyList~Delivery~ Deliveries
+        +AssignCourier(Guid courierId)
+        +AddDelivery(ValidatedPackage package, DeliveryAddress address)
+        +StartRoute(Coordinate startingPoint)
+        +CompleteRoute()
+        +CancelRoute()
+        +CompleteDelivery(Guid deliveryId, DeliveryConfirmation confirmation)
+        +FailDelivery(Guid deliveryId, string reason)
+        -FindDelivery(Guid deliveryId) Delivery
+        -CalculateDeliverySequence(Coordinate startingPoint)
     }
 
-    class Entrega {
-        <<Aggregate Root>>
-        -UUID id
-        -UUID rutaId
-        -PaqueteValidado paquete
-        -DireccionEntrega direccion
-        -EstadoEntrega estado
-        -ConstanciaEntrega constancia
-        +registrarEntregaExitosa(ConstanciaEntrega constancia)
-        +registrarEntregaFallida(String motivo)
+    %% ── Entities ────────────────────────────────────────────────
+    class Delivery {
+        &lt;&lt;Entity&gt;&gt;
+        +Guid Id
+        +Guid RouteId
+        +ValidatedPackage Package
+        +DeliveryAddress Address
+        +DeliveryStatus Status
+        +int? SequenceOrder
+        +DeliveryConfirmation? Confirmation
+        +string? FailureReason
+        +DateTime CreatedAt
+        +bool IsTerminal
+        +StartDelivery()$
+        +RegisterSuccessfulDelivery(DeliveryConfirmation confirmation)$
+        +RegisterFailedDelivery(string reason)$
     }
 
-    class Repartidor {
-        <<Entity>>
-        -UUID id
-        -String nombreCompleto
-        -EstadoRepartidor estado
+    class Courier {
+        &lt;&lt;Entity&gt;&gt;
+        +Guid Id
+        +string FullName
+        +CourierStatus Status
+        +SetStatus(CourierStatus status)
     }
 
-    %% Definición de Value Objects
-    class PaqueteValidado {
-        <<Value Object>>
-        -String paqueteId
-        -String pacienteId
-        -String datosEtiqueta
+    %% ── Value Objects ───────────────────────────────────────────
+    class ValidatedPackage {
+        &lt;&lt;ValueObject&gt;&gt;
+        +string PackageId
+        +string PatientId
+        +string LabelData
     }
 
-    class DireccionEntrega {
-        <<Value Object>>
-        -String descripcion
-        -Coordenada coordenadaPlana
+    class DeliveryAddress {
+        &lt;&lt;ValueObject&gt;&gt;
+        +string Description
+        +Coordinate PlanarCoordinate
     }
 
-    class Coordenada {
-        <<Value Object>>
-        -Float x
-        -Float y
-    }
-    
-    class ConstanciaEntrega {
-        <<Value Object>>
-        -DateTime fechaHoraEntrega
-        -String urlFotoEvidencia
-        -String firmaDigital
+    class Coordinate {
+        &lt;&lt;ValueObject&gt;&gt;
+        +double Latitude
+        +double Longitude
+        +DistanceTo(Coordinate other) double
     }
 
-    %% Relaciones
-    Ruta "1" *-- "many" Entrega : contiene
-    Ruta o-- "1" Repartidor : asignada a
-    Entrega *-- "1" DireccionEntrega : destino
-    Entrega *-- "1" PaqueteValidado : transporta
-    Entrega *-- "0..1" ConstanciaEntrega : respaldada por
-    DireccionEntrega *-- "1" Coordenada : ubicada en
+    class DeliveryConfirmation {
+        &lt;&lt;ValueObject&gt;&gt;
+        +DateTime DeliveredAt
+        +string EvidencePhotoUrl
+        +string DigitalSignature
+    }
+
+    %% ── Enums ───────────────────────────────────────────────────
+    class RouteStatus {
+        &lt;&lt;Enumeration&gt;&gt;
+        Pending
+        InProgress
+        Completed
+        Cancelled
+    }
+
+    class DeliveryStatus {
+        &lt;&lt;Enumeration&gt;&gt;
+        Pending
+        InProgress
+        Delivered
+        Failed
+    }
+
+    class CourierStatus {
+        &lt;&lt;Enumeration&gt;&gt;
+        Available
+        OnRoute
+        OnBreak
+    }
+
+    %% ── Relationships ───────────────────────────────────────────
+    Route "1" *-- "0..*" Delivery : owns
+    Route "1" -- "1" Courier : references by ID
+    Delivery *-- "1" ValidatedPackage
+    Delivery *-- "1" DeliveryAddress
+    Delivery *-- "0..1" DeliveryConfirmation
+    DeliveryAddress *-- "1" Coordinate
+    Delivery ..> DeliveryStatus
+    Route ..> RouteStatus
+    Courier ..> CourierStatus
+
+    %% ── Legend ──────────────────────────────────────────────────
+    note for Route "$ = internal (only Route calls these)"
 ```
+
+## Domain Events
+
+| Event | Trigger | Payload |
+|---|---|---|
+| `CourierCreatedEvent` | Courier constructed | `Id`, `FullName`, `Status` |
+| `CourierStatusChangedEvent` | `Courier.SetStatus()` | `CourierId`, `OldStatus`, `NewStatus` |
+| `RouteCreatedEvent` | Route constructed | `RouteId`, `CourierId`, `ScheduledDate` |
+| `CourierAssignedToRouteEvent` | `Route.AssignCourier()` | `RouteId`, `CourierId` |
+| `DeliveryAddedToRouteEvent` | `Route.AddDelivery()` | `RouteId`, `DeliveryId`, `PackageId`, `PatientId` |
+| `RouteStartedEvent` | `Route.StartRoute()` | `RouteId` |
+| `RouteCompletedEvent` | `Route.CompleteRoute()` | `RouteId` |
+| `RouteCancelledEvent` | `Route.CancelRoute()` | `RouteId` |
+| `DeliveryCompletedEvent` | `Delivery.RegisterSuccessfulDelivery()` | `DeliveryId`, `RouteId`, `DeliveredAt` |
+| `DeliveryFailedEvent` | `Delivery.RegisterFailedDelivery()` | `DeliveryId`, `RouteId`, `Reason` |
+
+## Repository Interfaces
+
+| Interface | Base | Key methods beyond base |
+|---|---|---|
+| `IRouteRepository` | `IRepository<Route>` | `GetAllAsync`, `GetLatestRouteForTodayAsync`, `GetByCourierAndDateAsync`, `UpdateAsync`, `DeleteAsync` |
+| `ICourierRepository` | _(standalone)_ | `GetByIdAsync`, `GetAllAsync`, `GetByStatusAsync`, `AddAsync`, `UpdateAsync`, `DeleteAsync` |
+
+> **Note:** `Delivery` has no repository and no `DbSet`. All persistence goes through `Route` (the aggregate root).
