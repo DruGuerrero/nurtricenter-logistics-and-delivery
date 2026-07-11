@@ -48,7 +48,7 @@ public sealed class CompleteDeliveryHandler : IRequestHandler<CompleteDeliveryCo
         return new CompleteDeliveryResponse(
             delivery.Id,
             delivery.RouteId,
-            delivery.Status.ToString().ToLowerInvariant(),
+            delivery.Status.ToString(),
             new CompleteDeliveryConfirmationDto(
                 delivery.Confirmation!.DeliveredAt,
                 delivery.Confirmation.EvidencePhotoUrl,
