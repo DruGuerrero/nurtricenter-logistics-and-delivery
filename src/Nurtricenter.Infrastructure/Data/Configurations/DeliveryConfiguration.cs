@@ -28,6 +28,9 @@ public sealed class DeliveryConfiguration : IEntityTypeConfiguration<Delivery>
             .HasConversion<string>()
             .IsRequired();
 
+        builder.Property(d => d.CreatedAt)
+            .IsRequired();
+
         // ── Value Object: ValidatedPackage ──────────────────────────
         builder.OwnsOne(d => d.Package, package =>
         {
