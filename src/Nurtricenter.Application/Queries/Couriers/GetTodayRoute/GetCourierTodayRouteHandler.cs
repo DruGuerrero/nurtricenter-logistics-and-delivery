@@ -59,7 +59,7 @@ public sealed class GetCourierTodayRouteHandler : IRequestHandler<GetCourierToda
         var deliveryDtos = deliveries
             .Select((d, index) => new TodayDeliveryDto(
                 d.Id,
-                index + 1, //hardcoded for now
+                d.SequenceOrder ?? index + 1,
                 patientNameMap.TryGetValue(d.Package.PatientId, out var name) ? name : d.Package.PatientId,
                 d.Address.Description))
             .ToList();

@@ -14,6 +14,7 @@ public sealed class Delivery : Entity
     public ValidatedPackage Package { get; private set; }
     public DeliveryAddress Address { get; private set; }
     public DeliveryStatus Status { get; private set; }
+    public int? SequenceOrder { get; internal set; }
     public DeliveryConfirmation? Confirmation { get; private set; }
 
     public bool IsTerminal => Status == DeliveryStatus.Delivered || Status == DeliveryStatus.Failed;

@@ -17,6 +17,9 @@ public sealed class DeliveryConfiguration : IEntityTypeConfiguration<Delivery>
 
         builder.Ignore("DomainEvents");
 
+        builder.Property(d => d.SequenceOrder)
+            .IsRequired(false);
+
         builder.Property(d => d.RouteId)
             .IsRequired();
 
