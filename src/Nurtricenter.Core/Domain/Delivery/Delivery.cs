@@ -16,6 +16,7 @@ public sealed class Delivery : Entity
     public DeliveryStatus Status { get; private set; }
     public int? SequenceOrder { get; internal set; }
     public DeliveryConfirmation? Confirmation { get; private set; }
+    public string? FailureReason { get; private set; }
     public DateTime CreatedAt { get; set; }
 
     public bool IsTerminal => Status == DeliveryStatus.Delivered || Status == DeliveryStatus.Failed;
@@ -95,6 +96,7 @@ public sealed class Delivery : Entity
                     "Cannot register a failed delivery when the delivery is {status}.",
                     Status.ToString()));
 
+        FailureReason = reason;
         Status = DeliveryStatus.Failed;
 
         AddDomainEvent(new DeliveryFailedEvent(Id, RouteId, reason));
