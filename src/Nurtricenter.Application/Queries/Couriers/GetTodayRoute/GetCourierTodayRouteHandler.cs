@@ -61,7 +61,8 @@ public sealed class GetCourierTodayRouteHandler : IRequestHandler<GetCourierToda
                 d.Id,
                 d.SequenceOrder ?? index + 1,
                 patientNameMap.TryGetValue(d.Package.PatientId, out var name) ? name : d.Package.PatientId,
-                d.Address.Description))
+                d.Address.Description,
+                d.Status.ToString()))
             .ToList();
 
         return new CourierTodayRouteResponse(request.CourierId, route.Id, deliveryDtos);

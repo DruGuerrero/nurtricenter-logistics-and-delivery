@@ -9,4 +9,5 @@ public sealed record TodayDeliveryDto(
     Guid PackageDeliveryId,
     int SequenceOrder,
     string PatientName,
-    string Address);
+    string Address,
+    string Status);
