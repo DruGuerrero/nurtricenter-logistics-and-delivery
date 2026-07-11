@@ -20,6 +20,10 @@ public sealed class DeliveryConfiguration : IEntityTypeConfiguration<Delivery>
         builder.Property(d => d.SequenceOrder)
             .IsRequired(false);
 
+        builder.Property(d => d.FailureReason)
+            .HasMaxLength(500)
+            .IsRequired(false);
+
         builder.Property(d => d.RouteId)
             .IsRequired();
 
