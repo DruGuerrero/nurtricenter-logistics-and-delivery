@@ -14,7 +14,9 @@ public sealed class Delivery : Entity
     public ValidatedPackage Package { get; private set; }
     public DeliveryAddress Address { get; private set; }
     public DeliveryStatus Status { get; private set; }
+    public int? SequenceOrder { get; internal set; }
     public DeliveryConfirmation? Confirmation { get; private set; }
+    public DateTime CreatedAt { get; set; }
 
     public bool IsTerminal => Status == DeliveryStatus.Delivered || Status == DeliveryStatus.Failed;
 
@@ -38,6 +40,7 @@ public sealed class Delivery : Entity
         Package = package;
         Address = address;
         Status = DeliveryStatus.Pending;
+        CreatedAt = DateTime.UtcNow;
     }
 
     private Delivery() : base() { }

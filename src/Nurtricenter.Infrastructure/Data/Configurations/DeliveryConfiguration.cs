@@ -17,12 +17,18 @@ public sealed class DeliveryConfiguration : IEntityTypeConfiguration<Delivery>
 
         builder.Ignore("DomainEvents");
 
+        builder.Property(d => d.SequenceOrder)
+            .IsRequired(false);
+
         builder.Property(d => d.RouteId)
             .IsRequired();
 
         builder.Property(d => d.Status)
             .HasMaxLength(50)
             .HasConversion<string>()
+            .IsRequired();
+
+        builder.Property(d => d.CreatedAt)
             .IsRequired();
 
         // ── Value Object: ValidatedPackage ──────────────────────────

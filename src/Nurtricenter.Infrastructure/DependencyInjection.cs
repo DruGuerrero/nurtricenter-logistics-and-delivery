@@ -8,6 +8,7 @@ using Nurtricenter.Core.Domain.Route.Repositories;
 using Nurtricenter.Core.Interfaces.Services.ClinicService;
 using Nurtricenter.Infrastructure.Data;
 using Nurtricenter.Infrastructure.Data.Repositories;
+using Nurtricenter.Core.Options;
 using Nurtricenter.Infrastructure.Options;
 using Nurtricenter.Infrastructure.Services;
 
@@ -32,9 +33,14 @@ public static class DependencyInjection
         // Unit of Work
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
-        // External services
+        // Options
         services.Configure<ClinicServiceOptions>(
             configuration.GetSection(ClinicServiceOptions.SectionName));
+
+        services.Configure<BranchCoordinatesOptions>(
+            configuration.GetSection(BranchCoordinatesOptions.SectionName));
+
+        // External services
 
         services.AddHttpClient<IClinicService, ClinicService>((sp, client) =>
         {

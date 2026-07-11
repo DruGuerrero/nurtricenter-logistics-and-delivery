@@ -75,7 +75,7 @@ public sealed class Route : AggregateRoot
         AddDomainEvent(new DeliveryAddedToRouteEvent(Id, delivery.Id, package.PackageId, package.PatientId));
     }
 
-    public void StartRoute()
+    public void StartRoute(Coordinate startingPoint)
     {
         if (Status != RouteStatus.Pending)
             throw new DomainException(
@@ -83,6 +83,14 @@ public sealed class Route : AggregateRoot
                     "Route.CannotStart",
                     "Only pending routes can be started. Current status: {status}.",
                     Status.ToString()));
+
+        if (_deliveries.Count == 0)
+            throw new DomainException(
+                Error.Problem(
+                    "Route.NoDeliveries",
+                    "Cannot start a route with no deliveries."));
+
+        CalculateDeliverySequence(startingPoint);
 
         Status = RouteStatus.InProgress;
 
@@ -92,6 +100,24 @@ public sealed class Route : AggregateRoot
         }
 
         AddDomainEvent(new RouteStartedEvent(Id));
+    }
+
+    private void CalculateDeliverySequence(Coordinate startingPoint)
+    {
+        var remaining = new List<DeliveryEntity>(_deliveries);
+        var currentPoint = startingPoint;
+        int sequence = 1;
+
+        while (remaining.Count > 0)
+        {
+            var nearest = remaining
+                .OrderBy(d => currentPoint.DistanceTo(d.Address.PlanarCoordinate))
+                .First();
+
+            nearest.SequenceOrder = sequence++;
+            currentPoint = nearest.Address.PlanarCoordinate;
+            remaining.Remove(nearest);
+        }
     }
 
     public void CompleteRoute()
