@@ -1,4 +1,4 @@
-namespace Nurtricenter.Api.Endpoints.Couriers;
+namespace Nurtricenter.Api.Endpoints.Couriers.CreateCourier;
 
 using MediatR;
 using Microsoft.AspNetCore.Mvc;

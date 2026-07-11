@@ -35,6 +35,12 @@ public sealed class RouteRepository : IRouteRepository
             .OrderByDescending(r => r.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
 
+    public async Task<Route?> GetByCourierAndDateAsync(Guid courierId, DateOnly date, CancellationToken cancellationToken = default)
+        => await _context.Routes
+            .Include(r => r.Deliveries)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.CourierId == courierId && r.ScheduledDate == date, cancellationToken);
+
     public Task UpdateAsync(Route route, CancellationToken cancellationToken = default)
     {
         _context.Routes.Update(route);
