@@ -26,7 +26,7 @@ public sealed record DeliveryConfirmation
                     "Digital signature cannot be empty.",
                     ErrorType.Validation));
 
-        DeliveredAt = deliveredAt;
+        DeliveredAt = deliveredAt.ToUniversalTime();
         EvidencePhotoUrl = evidencePhotoUrl;
         DigitalSignature = digitalSignature;
     }
