@@ -21,6 +21,8 @@ public static class DependencyInjection
 
         services.AddAuthorization();
 
+        services.AddHealthChecks();
+
         return services;
     }
 
@@ -45,6 +47,8 @@ public static class DependencyInjection
         app.UseAuthorization();
 
         app.MapControllers();
+
+        app.MapHealthChecks("/health");
 
         return app;
     }
