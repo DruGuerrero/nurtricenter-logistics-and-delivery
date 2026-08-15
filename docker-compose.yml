@@ -3,7 +3,7 @@ name: nurtricenter-ms5
 services:
   api:
     build: .
-    image: nurtricenter-ms5
+    image: nurtricenter-ms5:0.1.0
     container_name: nurtricenter-ms5-api
     ports:
       - "8080:8080"

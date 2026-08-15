@@ -11,7 +11,7 @@
 ### 1. Construir la imagen
 
 ```powershell
-docker build -t nurtricenter-api .
+docker build -t nurtricenter-ms5:0.1.0 .
 ```
 
 | Parte                 | Significado                                                                                                                                                       |
@@ -30,7 +30,7 @@ docker run --rm -p 8080:8080 `
     -e "ClinicService__BaseUrl=https://763708cb-6809-4a65-be56-fe140385a461.mock.pstmn.io" `
     -e "branchCoordinates__latitude=-17.768853725548713" `
     -e "branchCoordinates__longitude=-63.18276022365929" `
-    nurtricenter-api
+    nurtricenter-ms5:0.1.0
 ```
 
 | Parte               | Significado                                                                                                                                                                                                                                         |
