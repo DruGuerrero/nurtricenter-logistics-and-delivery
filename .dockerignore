@@ -1,0 +1,26 @@
+# Build output
+**/bin/
+**/obj/
+
+# IDE / editor state
+**/.vs/
+.vs/
+*.user
+*.suo
+.idea/
+.vscode/
+
+# VCS and CI
+.git/
+.github/
+
+# Local configuration / secrets (must not be baked into the image)
+appsettings.Development.json
+appsettings.*.local.json
+secrets.json
+
+# Docs and misc
+docs/
+README.md
+Dockerfile
+.dockerignore
