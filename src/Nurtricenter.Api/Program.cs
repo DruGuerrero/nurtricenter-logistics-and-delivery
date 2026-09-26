@@ -1,4 +1,4 @@
-using Nurtricenter.Api;
+﻿using Nurtricenter.Api;
 using Nurtricenter.Application;
 using Nurtricenter.Infrastructure;
 using Serilog;
@@ -33,3 +33,5 @@ finally
 {
     Log.CloseAndFlush();
 }
+
+public partial class Program { }
