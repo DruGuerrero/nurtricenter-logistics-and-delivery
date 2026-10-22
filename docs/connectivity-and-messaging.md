@@ -1,0 +1,394 @@
+# Connectivity & Messaging — Flow and Testing Guide
+
+This document explains how Nurtricenter (ms5) connects to the rest of the platform: how it is
+discovered and routed to through the shared API gateway, and how its domain events reach other
+microservices through RabbitMQ. It covers the implementation flow end-to-end and how to test it.
+
+---
+
+## 1. Overview
+
+The platform connects microservices in two independent ways:
+
+| Mechanism | Direction | Purpose |
+|---|---|---|
+| **Consul + YARP gateway** | inbound HTTP | The shared gateway (`nur-tricenter-api-gateway`) discovers healthy service instances in Consul and routes `/api/{service}/*` to them. No static route table exists — registration IS routing. |
+| **RabbitMQ fanout exchanges** | outbound events | Every domain fact the service produces is published as an integration event through a transactional outbox, so no event can be lost or invented around a crash. |
+
+Both mechanisms are **opt-in through configuration** and degrade gracefully: with no Consul
+address configured the service simply runs unreachable through the gateway; with no broker the
+worker logs warnings and retries — nothing crashes on startup.
+
+```mermaid
+flowchart LR
+    subgraph Platform
+        GW[YARP Gateway]
+        C[Consul]
+        R[RabbitMQ]
+    end
+    subgraph Nurtricenter
+        API[Nurtricenter.Api]
+        DB[(PostgreSQL<br/>+ outbox table)]
+        W[Nurtricenter.WorkerService]
+    end
+
+    Client -->|"/api/nurtricenter/v1/..."| GW
+    GW -->|"discovery (30s refresh)"| C
+    GW -->|"/api/v1/..."| API
+    API -->|"registration + /health check"| C
+    API -->|"aggregates + outbox rows<br/>(one transaction)"| DB
+    W -->|"polls unprocessed rows"| DB
+    W -->|"publishes to fanout exchanges"| R
+```
+
+---
+
+## 2. Flow 1 — From domain event to RabbitMQ (transactional outbox)
+
+The design goal: **an event must be published if and only if its aggregate change was saved**.
+A crash between "save" and "publish" must never lose or duplicate the business fact beyond
+what a consumer can handle (at-least-once semantics).
+
+### 2.1 The domain event is raised
+
+Aggregates raise events through the `Joseco.DDD.Core` base types — e.g.
+`Courier` raises `CourierCreatedEvent` in its constructor, `Route.CompleteDelivery` raises
+`DeliveryCompletedEvent`. Events accumulate on the entity in memory; nothing happens yet.
+
+### 2.2 The unit of work drains events BEFORE saving
+
+`Nurtricenter.Infrastructure.Data.UnitOfWork.CommitAsync`:
+
+1. Collects the pending domain events from all tracked entities (`ChangeTracker.Entries<Entity>()`).
+2. Publishes each one through **MediatR, in-process** — this is where the
+   `SaveInOutboxWhen*` handlers run and stage `OutboxMessage<DomainEvent>` rows into the
+   *same DbContext*.
+3. **Then** calls `SaveChangesAsync` — so aggregates and outbox rows are written in **one
+   database transaction**.
+
+> Draining before saving is the whole trick: if the handler published straight to RabbitMQ
+> before the commit, a failed save would have already emitted an event for a change that never
+> happened. If it published after the commit, a crash in between would lose the event. Staging
+> a row in the same transaction makes both impossible.
+
+The drain runs in rounds (max 10) so an in-process handler that mutates an aggregate and raises
+a follow-up event (e.g. completing the last delivery completes the route, raising
+`RouteCompletedEvent`) is collected in the next round. A re-entrancy guard makes a nested
+`CommitAsync` (like the one inside `CompleteRouteWhenAllDeliveriesCompletedHandler`) a no-op:
+its mutations persist through the outer save.
+
+### 2.3 The worker turns rows into messages
+
+`Nurtricenter.WorkerService` runs the library's `OutboxProcessor<DomainEvent>` as a background
+service:
+
+1. Polls rows where `Processed = false`, ordered by creation time.
+2. Dispatches each row as a MediatR notification (`OutboxMessage<DomainEvent>`).
+3. The `PublishIntegrationEventWhen*` handlers (registered **only** in the worker) filter by
+   the row's `Content` type, map the domain event to its **integration contract** and publish
+   it to the contract's exchange.
+4. The library marks the row `Processed` after a successful dispatch. If publishing throws,
+   the row stays unprocessed and is retried on the next poll — that is the at-least-once
+   guarantee; consumers must be idempotent.
+
+```mermaid
+sequenceDiagram
+    participant A as Aggregate
+    participant U as UnitOfWork
+    participant S as SaveInOutboxWhen*
+    participant DB as Database
+    participant P as OutboxProcessor (Worker)
+    participant H as PublishIntegrationEventWhen*
+    participant R as RabbitMQ
+
+    A->>U: domain event raised on entity
+    U->>S: mediator.Publish (in-process, BEFORE save)
+    S->>DB: stage OutboxMessage row (same DbContext)
+    U->>DB: SaveChanges — aggregates + outbox row, ONE transaction
+    Note over DB: row is Processed=false
+    P->>DB: poll unprocessed rows
+    P->>H: dispatch OutboxMessage<DomainEvent>
+    H->>R: PublishAsync(contract, exchange, declareDestination: true)
+    P->>DB: mark row Processed
+```
+
+### 2.4 The message envelope
+
+Every published message extends `Joseco.Communication.External.Contracts.Message.IntegrationMessage`:
+
+| Field | Source |
+|---|---|
+| `Id`, `CreatedAt` | set by the library |
+| `CorrelationId` | stamped by `OutboxTracingService` from `Activity.Current.TraceId` when the row is staged — the same id ties the HTTP request, the DB row, the worker's logs and the message together |
+| `Source` | `"nurtricenter"` (const in each publish handler) |
+| `EventType` | stable discriminator (`"Delivery.Completed"`, …) — consumers switch on this, never on the CLR type |
+
+### 2.5 Broker topology
+
+`DefaultQueueRegistrar` (worker) declares, idempotently and with a 10s retry loop:
+
+- One **fanout exchange per event** (non-durable, non-auto-delete — flags MUST match what the
+  Joseco 1.1.0 publisher declares, or RabbitMQ answers `406 PRECONDITION_FAILED`).
+- One queue, **`nurtricenter.default`** (durable), bound to all 10 exchanges and **never
+  consumed** — it is the complete history record of everything this service publishes.
+
+Per-consumer queues are created by the consuming microservices themselves against these
+exchanges. All exchange names live in `contracts/NurtricenterExchanges.cs`.
+
+---
+
+## 3. Flow 2 — Consul registration and gateway routing
+
+### 3.1 Self-registration
+
+When `ServiceRegistration:ServiceDiscoveryAddress` is set, the API registers a
+`ServiceRegistration` hosted service:
+
+- On **start**: registers this instance with its own HTTP check on
+  `http://{host}:{port}/health` (probe interval 10s, timeout 5s,
+  `DeregisterCriticalServiceAfter` 30s). Registration is retried 3 times with exponential
+  backoff (500ms → 1s) and **never throws** — a Consul outage only degrades discovery.
+- On **stop**: deregisters; if that fails, Consul evicts the instance after 30s anyway.
+- The advertised port prefers the configured `Port` and falls back to the port Kestrel
+  actually bound (`ServerAddressesPortResolver`).
+
+### 3.2 Health-gated discovery
+
+`/health` always exists (the gateway and Consul probe it), but the **postgres check is
+registered only when discovery is enabled** — one predicate
+(`IsServiceDiscoveryEnabled()`) gates both, so they can never drift apart:
+
+- DB down → `/health` returns **503** → Consul marks the instance critical → the gateway
+  drops the route on its next refresh (30s).
+- No discovery config → zero checks → `/health` reports `Healthy` (honest: nothing external
+  to report on), and integration tests never touch a real database.
+
+The response body is the structured writer in `Nurtricenter.Api/Utils/HealthReportWriter.cs`:
+`{ success, message, data: { status, totalDurationMilliseconds, entries: [...] } }`.
+
+### 3.3 Gateway routing
+
+The shared gateway (YARP + Consul) exposes every healthy service at
+`/api/{serviceName}/*`. It strips `/api/{serviceName}` and prepends `/api`, so:
+
+```
+Client:  POST /api/nurtricenter/v1/couriers
+         → gateway rewrites to /api/v1/couriers → Nurtricenter.Api
+```
+
+**That is why every endpoint is versioned** (`/api/v1/...`): the rewrite needs the shared
+`/api` prefix on the upstream path. The 3 formerly unversioned routes were normalized to
+`/api/v1/couriers`, `/api/v1/routes` and `/api/v1/packages/deliveries` for exactly this reason.
+
+Also note `HttpsRedirection` is **off** behind the gateway (TLS terminates upstream) — it is a
+config toggle (`HttpsRedirection:Enabled`), enabled only for local https runs.
+
+```mermaid
+sequenceDiagram
+    participant API as Nurtricenter.Api
+    participant C as Consul
+    participant GW as YARP Gateway
+    participant DB as PostgreSQL
+
+    API->>C: register nurtricenter-service + HTTP check /health
+    loop every 10s
+        C->>API: GET /health
+        API->>DB: SELECT 1 (only when discovery enabled)
+        API-->>C: 200 (Healthy) or 503 (Unhealthy)
+    end
+    loop every 30s
+        GW->>C: healthy instances of each service
+    end
+    GW->>API: route /api/nurtricenter/* → /api/*
+```
+
+---
+
+## 4. Event catalog
+
+| Domain event | Integration contract (`contracts/`) | Exchange | `EventType` |
+|---|---|---|---|
+| `CourierCreatedEvent` | `CourierCreated` | `courier-created` | `Courier.Created` |
+| `CourierStatusChangedEvent` | `CourierStatusChanged` | `courier-status-changed` | `Courier.StatusChanged` |
+| `RouteCreatedEvent` | `RouteCreated` | `route-created` | `Route.Created` |
+| `CourierAssignedToRouteEvent` | `CourierAssignedToRoute` | `courier-assigned-to-route` | `Route.CourierAssigned` |
+| `DeliveryAddedToRouteEvent` | `DeliveryAddedToRoute` | `delivery-added-to-route` | `Route.DeliveryAdded` |
+| `RouteStartedEvent` | `RouteStarted` | `route-started` | `Route.Started` |
+| `RouteCompletedEvent` | `RouteCompleted` | `route-completed` | `Route.Completed` |
+| `RouteCancelledEvent` | `RouteCancelled` | `route-cancelled` | `Route.Cancelled` |
+| `DeliveryCompletedEvent` | `DeliveryCompleted` | `delivery-completed` | `Delivery.Completed` |
+| `DeliveryFailedEvent` | `DeliveryFailed` | `delivery-failed` | `Delivery.Failed` |
+
+Adding an event means: a constant in `NurtricenterExchanges`, a contract, a `SaveInOutboxWhen*`
+handler, a `PublishIntegrationEventWhen*` handler and a line in `All`. The test suite fails the
+build if any of these steps is forgotten (see §5.1).
+
+---
+
+## 5. Testing
+
+### 5.1 Automated tests
+
+```bash
+dotnet test src/Nurtricenter.Test/Nurtricenter.Test.csproj
+```
+
+The suite (271 tests) includes connectivity-specific guards on top of the domain/use-case tests:
+
+| Test | What it guards |
+|---|---|
+| `ServiceDiscovery/ServiceRegistrationTests` | registration payload + own `/health` check, 30s eviction, deregister on stop, 3 retries without throwing, bound-port fallback, extension no-op without config |
+| `Infrastructure/UnitOfWorkTests` | aggregate + outbox row saved in one commit, re-entrancy guard (`CommitAsync` called twice does not re-enter), tracker cleared on failed save, no duplicate outbox rows |
+| `Infrastructure/Outbox/*` | staging/update/unprocessed query (InMemory), trace stamping from `Activity.Current`, `CorrelationId` preservation |
+| `Domain/Events/DomainEventOutboxSerializationTests` | every domain event round-trips through the outbox's Newtonsoft serializer with payload intact; **no domain event exposes a public parameterless constructor** (which would make Newtonsoft build empty events) |
+| `Contracts/NurtricenterExchangesTests` | every publisher destination is a declared exchange and vice versa, no duplicates |
+| `DomainEvents/OutboxChainCoverageTests` | every domain event has both its `SaveInOutboxWhen*` and `PublishIntegrationEventWhen*` handler |
+| `DomainEvents/PublishIntegrationEventHandlersTests` | mapping, destination exchange, `declareDestination: true`, `CorrelationId`/`Source`, unrelated events ignored |
+| `WorkerService/*` | `RabbitMqSettings` required, publisher registration, publish handlers only exist in the worker host, queue bound to exactly the 10 registry exchanges |
+| `Integration/ServiceDiscoveryGatingTests` | the test host reads discovery as **disabled** |
+
+**Hermetic integration tests:** `IntegrationTestWebAppFactory` boots the real host, which loads
+the git-ignored `appsettings.Development.json` — the file that points at a *real* Consul. The
+factory blanks `ServiceRegistration:ServiceDiscoveryAddress` through an in-memory configuration
+source (appended last, so it wins), which turns off Consul registration, the postgres health
+check and everything external in one stroke.
+
+### 5.2 Manual end-to-end test
+
+#### Prerequisites
+
+1. **Database migration** — the outbox table must exist. Run from `src/Nurtricenter.Infrastructure`
+   (done manually by the developer, not by tooling):
+
+   ```bash
+   dotnet ef migrations add AddOutboxMessages --startup-project ../Nurtricenter.Api
+   dotnet ef database update --startup-project ../Nurtricenter.Api
+   ```
+
+2. **Docker Desktop** running, for Consul and RabbitMQ (or the full platform stack in
+   `nur-tricenter-local`, which also includes the gateway):
+
+   ```bash
+   docker run -d --name consul-dev -p 8500:8500 hashicorp/consul:1.20 agent -dev -client=0.0.0.0
+   docker run -d --name rabbitmq-dev -p 5672:5672 -p 15672:15672 rabbitmq:3-management-alpine
+   ```
+
+   > RabbitMQ **must** be reachable on host port **5672**: the Joseco 1.1.0 library builds its
+   > connection from Host/User/Password only and silently ignores `RabbitMqSettings:Port`.
+
+#### Step 1 — Run the API
+
+The local `appsettings.Development.json` already points at `http://localhost:8500`:
+
+```bash
+dotnet run --project src/Nurtricenter.Api/Nurtricenter.Api.csproj
+```
+
+Expected:
+- Log line: `Registered nurtricenter-service-1 (nurtricenter-service) in Consul at localhost with an HTTP check on http://localhost:5036/health.`
+- Consul UI (<http://localhost:8500>) shows `nurtricenter-service` with a **passing** check.
+- `curl http://localhost:5036/health` returns:
+
+  ```json
+  {"success":true,"message":"Healthy","data":{"status":"Healthy","totalDurationMilliseconds":…,"entries":[{"name":"postgres","status":"Healthy",…}]}}
+  ```
+
+#### Step 2 — Trigger an event
+
+```bash
+curl -X POST http://localhost:5036/api/v1/couriers \
+     -H "Content-Type: application/json" \
+     -d '{"fullName":"E2E Courier"}'
+```
+
+Expected: `201 Created`. Then inspect the database (Neon console or psql): the `Couriers` row
+exists and `outbox."outboxMessage"` contains **one unprocessed row** whose `content` JSON is the
+full `CourierCreatedEvent` (with `type` discriminator) and whose `traceId`/`correlationId` are
+filled from the HTTP request.
+
+#### Step 3 — Run the worker
+
+```bash
+dotnet run --project src/Nurtricenter.WorkerService/Nurtricenter.WorkerService.csproj
+```
+
+Expected:
+- Log: `Queue nurtricenter.default is declared and bound to 10 exchange(s): courier-created, …`
+- RabbitMQ management UI (<http://localhost:15672>, guest/guest): 10 fanout exchanges;
+  queue `nurtricenter.default` durable, bound to all 10, with **depth 1**.
+- Inspect the message ("Get messages" in the UI): `EventType: "Courier.Created"`,
+  `Source: "nurtricenter"`, `CorrelationId` filled, full payload.
+- The outbox row's `processed` flag is now `true` and `processedOn` is set.
+
+#### Step 4 — Route through the gateway (platform stack only)
+
+With `nur-tricenter-local` running (`docker compose up`), call the gateway instead of the API
+directly (host port `15005`):
+
+```bash
+curl -X POST http://localhost:15005/api/nurtricenter/v1/couriers \
+     -H "Content-Type: application/json" \
+     -d '{"fullName":"Via Gateway"}'
+```
+
+Expected: same `201` — the gateway discovered `nurtricenter` in Consul and rewrote
+`/api/nurtricenter/v1/couriers` → `/api/v1/couriers` upstream. Calling a service that is not
+registered (or unhealthy) returns `404` from the gateway, because no route exists.
+
+### 5.3 Failure-path checks
+
+| Scenario | Expected behaviour |
+|---|---|
+| Stop Consul while the API runs | API keeps serving; log warnings about failed (re)registration; gateway keeps the last known-good route until the instance is evicted |
+| Stop PostgreSQL | `/health` returns 503 with the `postgres` entry Unhealthy; Consul marks the instance critical; gateway drops the route within 30s |
+| Stop RabbitMQ before starting the worker | Worker boots; `DefaultQueueRegistrar` retries every 10s; outbox rows stay unprocessed and are published once the broker returns |
+| Kill the worker right after a commit | Rows stay `processed=false`; restarting the worker publishes them (at-least-once) |
+
+---
+
+## 6. Configuration reference
+
+| Key (env-var form) | Used by | Default | Meaning |
+|---|---|---|---|
+| `ServiceRegistration__ServiceDiscoveryAddress` | API | *(blank)* | Consul agent URL. **Master switch**: blank = no registration, no postgres health check |
+| `ServiceRegistration__ServiceName` | API | `nurtricenter-service` | Name the gateway routes by (platform uses `nurtricenter`) |
+| `ServiceRegistration__ServiceId` | API | = ServiceName | Unique per replica |
+| `ServiceRegistration__Host` | API | `localhost` | Address the **gateway** uses to reach this instance |
+| `ServiceRegistration__Port` | API | bound port | Port the gateway uses |
+| `HttpsRedirection__Enabled` | API | `false` | `true` only when this process is the TLS edge (local https profile) |
+| `RabbitMqSettings__Host` | Worker | — | Broker host; **must be reachable on 5672** |
+| `RabbitMqSettings__UserName` / `__Password` / `__VirtualHost` | Worker | — | Broker credentials (guest/guest/`/` locally) |
+| `RabbitMqSettings__MaxRetryAttempts` / `__RetryBaseDelayMilliseconds` | Worker | 3 / 500 | Consumer-side retry policy (used by services that consume; this service only produces) |
+| `ConnectionStrings__DefaultConnection` | API + Worker | — | PostgreSQL connection string |
+
+Tracked `appsettings.json` files deliberately contain **no** connection strings, broker
+credentials or `ServiceRegistration` section — those live in git-ignored
+`appsettings.Development.json` files or environment variables.
+
+---
+
+## 7. Troubleshooting
+
+| Symptom | Likely cause |
+|---|---|
+| `406 PRECONDITION_FAILED - inequivalent arg 'durable'` | An exchange was declared with different flags elsewhere. Exchanges must be `fanout` + non-durable + non-auto-delete to match the Joseco 1.1.0 publisher |
+| Worker can't connect even though RabbitMQ is up | Broker not on host port 5672 (the library ignores `RabbitMqSettings:Port`) |
+| Consul shows no service | `ServiceRegistration__ServiceDiscoveryAddress` blank/malformed (malformed throws at startup); or no port resolvable (check `Port` / launch profile) |
+| `/health` returns 503 in development | Postgres unreachable — this is the intended gate (Consul then stops advertising the instance) |
+| Published messages have empty payloads | A domain event gained a public parameterless constructor — Newtonsoft deserializes through it. The serialization guard test fails first |
+| `TypeLoadException` mentioning MediatR 12 at startup | Joseco's `AddOutbox<T>()` was called — it is incompatible with MediatR 14; outbox services must be registered manually (see `Nurtricenter.Infrastructure.DependencyInjection.AddOutboxServices`) |
+| API returns 404 behind the gateway | Route not versioned (`/api/v1/...`) or service unhealthy/not registered in Consul |
+
+---
+
+## 8. Key code locations
+
+| Concern | Path |
+|---|---|
+| Consul registration | `src/Nurtricenter.Infrastructure/ServiceDiscovery/` |
+| Outbox + unit of work | `src/Nurtricenter.Infrastructure/Data/{UnitOfWork,EfCoreOutboxService}.cs`, `Observability/OutboxTracingService.cs` |
+| Outbox handlers | `src/Nurtricenter.Application/DomainEvents/` |
+| Worker host | `src/Nurtricenter.WorkerService/` |
+| Contracts + exchanges | `contracts/` |
+| Health writer + wiring | `src/Nurtricenter.Api/{Utils/HealthReportWriter.cs, DependencyInjection.cs}` |
+| Integration test factory (hermetic gating) | `src/Nurtricenter.Test/Integration/IntegrationTestWebAppFactory.cs` |

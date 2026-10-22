@@ -17,7 +17,7 @@ public class CourierIntegrationTests : BaseIntegrationTest
         await ClearDatabaseAsync();
 
         var request = new { FullName = "John Doe" };
-        var response = await Client.PostAsJsonAsync("/couriers", request);
+        var response = await Client.PostAsJsonAsync("/api/v1/couriers", request);
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         
@@ -30,7 +30,7 @@ public class CourierIntegrationTests : BaseIntegrationTest
     public async Task CreateCourier_WithEmptyName_ReturnsBadRequest()
     {
         var request = new { FullName = "" };
-        var response = await Client.PostAsJsonAsync("/couriers", request);
+        var response = await Client.PostAsJsonAsync("/api/v1/couriers", request);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         
