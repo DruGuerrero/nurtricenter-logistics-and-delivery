@@ -1,7 +1,6 @@
 namespace Nurtricenter.Application.DomainEvents;
 
 using Joseco.Communication.External.Contracts.Services;
-using Joseco.DDD.Core.Abstractions;
 using Joseco.Outbox.Contracts.Model;
 using MediatR;
 using Microsoft.Extensions.Logging;
@@ -12,7 +11,7 @@ using Nurtricenter.Core.Domain.Courier.Events;
 /// Translates the outbox message that carries <see cref="CourierCreatedEvent"/> into the
 /// <see cref="CourierCreated"/> external contract and publishes it to RabbitMQ.
 /// </summary>
-public sealed class PublishIntegrationEventWhenCourierCreated : INotificationHandler<OutboxMessage<DomainEvent>>
+public sealed class PublishIntegrationEventWhenCourierCreated : INotificationHandler<OutboxMessage<CourierCreatedEvent>>
 {
     /// <summary>
     /// Exchange/routing destination for this contract. It MUST be passed explicitly: the
@@ -35,14 +34,11 @@ public sealed class PublishIntegrationEventWhenCourierCreated : INotificationHan
         _publisher = publisher;
     }
 
-    public async Task Handle(OutboxMessage<DomainEvent> notification, CancellationToken cancellationToken = default)
+    public async Task Handle(OutboxMessage<CourierCreatedEvent> notification, CancellationToken cancellationToken = default)
     {
-        if (notification.Content is not CourierCreatedEvent courierCreated)
-        {
-            return;
-        }
+        var courierCreated = notification.Content;
 
-        var message = new CourierCreated(notification.CorrelationId, Source)
+        var message = new CourierCreated(OutboxCorrelation.Resolve(notification.CorrelationId), Source)
         {
             CourierId = courierCreated.CourierId,
             FullName = courierCreated.FullName,

@@ -1,7 +1,6 @@
 namespace Nurtricenter.Application.DomainEvents;
 
 using Joseco.Communication.External.Contracts.Services;
-using Joseco.DDD.Core.Abstractions;
 using Joseco.Outbox.Contracts.Model;
 using MediatR;
 using Microsoft.Extensions.Logging;
@@ -12,7 +11,7 @@ using Nurtricenter.Core.Domain.Delivery.Events;
 /// Translates the outbox message that carries <see cref="DeliveryCompletedEvent"/> into the
 /// <see cref="DeliveryCompleted"/> external contract and publishes it to RabbitMQ.
 /// </summary>
-public sealed class PublishIntegrationEventWhenDeliveryCompleted : INotificationHandler<OutboxMessage<DomainEvent>>
+public sealed class PublishIntegrationEventWhenDeliveryCompleted : INotificationHandler<OutboxMessage<DeliveryCompletedEvent>>
 {
     public const string Destination = NurtricenterExchanges.DeliveryCompleted;
     public const string Source = "nurtricenter";
@@ -28,14 +27,11 @@ public sealed class PublishIntegrationEventWhenDeliveryCompleted : INotification
         _publisher = publisher;
     }
 
-    public async Task Handle(OutboxMessage<DomainEvent> notification, CancellationToken cancellationToken = default)
+    public async Task Handle(OutboxMessage<DeliveryCompletedEvent> notification, CancellationToken cancellationToken = default)
     {
-        if (notification.Content is not DeliveryCompletedEvent deliveryCompleted)
-        {
-            return;
-        }
+        var deliveryCompleted = notification.Content;
 
-        var message = new DeliveryCompleted(notification.CorrelationId, Source)
+        var message = new DeliveryCompleted(OutboxCorrelation.Resolve(notification.CorrelationId), Source)
         {
             DeliveryId = deliveryCompleted.DeliveryId,
             RouteId = deliveryCompleted.RouteId,

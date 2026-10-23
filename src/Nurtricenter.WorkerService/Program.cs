@@ -1,5 +1,6 @@
 namespace Nurtricenter.WorkerService;
 
+using System.Diagnostics;
 using Joseco.DDD.Core.Abstractions;
 using Joseco.Outbox.EFCore;
 using Nurtricenter.Application;
@@ -52,6 +53,17 @@ public static class Program
         // exchange this service publishes to, so the broker keeps the complete record of
         // everything published.
         builder.Services.AddHostedService<DefaultQueueRegistrar>();
+
+        // Joseco's OutboxProcessor re-creates each message from its content only, dropping the
+        // stored CorrelationId, but it wraps every dispatch in a "Joseco.Outbox" activity parented
+        // to the row's stored trace. ActivitySource only creates activities when someone listens,
+        // so this listener is what makes Activity.Current carry the original trace id into the
+        // publish handlers (see OutboxCorrelation).
+        ActivitySource.AddActivityListener(new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == "Joseco.Outbox",
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded
+        });
 
         var host = builder.Build();
         await host.RunAsync();

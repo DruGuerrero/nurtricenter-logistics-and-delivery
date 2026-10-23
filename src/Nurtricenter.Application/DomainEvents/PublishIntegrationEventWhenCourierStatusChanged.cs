@@ -1,7 +1,6 @@
 namespace Nurtricenter.Application.DomainEvents;
 
 using Joseco.Communication.External.Contracts.Services;
-using Joseco.DDD.Core.Abstractions;
 using Joseco.Outbox.Contracts.Model;
 using MediatR;
 using Microsoft.Extensions.Logging;
@@ -12,7 +11,7 @@ using Nurtricenter.Core.Domain.Courier.Events;
 /// Translates the outbox message that carries <see cref="CourierStatusChangedEvent"/> into the
 /// <see cref="CourierStatusChanged"/> external contract and publishes it to RabbitMQ.
 /// </summary>
-public sealed class PublishIntegrationEventWhenCourierStatusChanged : INotificationHandler<OutboxMessage<DomainEvent>>
+public sealed class PublishIntegrationEventWhenCourierStatusChanged : INotificationHandler<OutboxMessage<CourierStatusChangedEvent>>
 {
     public const string Destination = NurtricenterExchanges.CourierStatusChanged;
     public const string Source = "nurtricenter";
@@ -28,14 +27,11 @@ public sealed class PublishIntegrationEventWhenCourierStatusChanged : INotificat
         _publisher = publisher;
     }
 
-    public async Task Handle(OutboxMessage<DomainEvent> notification, CancellationToken cancellationToken = default)
+    public async Task Handle(OutboxMessage<CourierStatusChangedEvent> notification, CancellationToken cancellationToken = default)
     {
-        if (notification.Content is not CourierStatusChangedEvent statusChanged)
-        {
-            return;
-        }
+        var statusChanged = notification.Content;
 
-        var message = new CourierStatusChanged(notification.CorrelationId, Source)
+        var message = new CourierStatusChanged(OutboxCorrelation.Resolve(notification.CorrelationId), Source)
         {
             CourierId = statusChanged.CourierId,
             OldStatus = statusChanged.OldStatus.ToString(),

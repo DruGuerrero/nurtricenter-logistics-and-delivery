@@ -58,7 +58,7 @@ public class RabbitMqRegistrationTests
 
         services.AddApplication();
 
-        services.Should().NotContain(d => d.ServiceType == typeof(INotificationHandler<OutboxMessage<DomainEvent>>));
+        services.Should().NotContain(d => Nurtricenter.Application.DependencyInjection.IsOutboxPublishHandler(d.ServiceType));
     }
 
     [Fact]
@@ -70,7 +70,7 @@ public class RabbitMqRegistrationTests
         services.AddIntegrationMessaging();
 
         services
-            .Where(d => d.ServiceType == typeof(INotificationHandler<OutboxMessage<DomainEvent>>))
+            .Where(d => Nurtricenter.Application.DependencyInjection.IsOutboxPublishHandler(d.ServiceType))
             .Should().HaveCount(10);
     }
 }

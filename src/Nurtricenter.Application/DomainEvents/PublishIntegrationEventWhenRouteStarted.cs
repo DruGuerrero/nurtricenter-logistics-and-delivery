@@ -1,7 +1,6 @@
 namespace Nurtricenter.Application.DomainEvents;
 
 using Joseco.Communication.External.Contracts.Services;
-using Joseco.DDD.Core.Abstractions;
 using Joseco.Outbox.Contracts.Model;
 using MediatR;
 using Microsoft.Extensions.Logging;
@@ -12,7 +11,7 @@ using Nurtricenter.Core.Domain.Route.Events;
 /// Translates the outbox message that carries <see cref="RouteStartedEvent"/> into the
 /// <see cref="RouteStarted"/> external contract and publishes it to RabbitMQ.
 /// </summary>
-public sealed class PublishIntegrationEventWhenRouteStarted : INotificationHandler<OutboxMessage<DomainEvent>>
+public sealed class PublishIntegrationEventWhenRouteStarted : INotificationHandler<OutboxMessage<RouteStartedEvent>>
 {
     public const string Destination = NurtricenterExchanges.RouteStarted;
     public const string Source = "nurtricenter";
@@ -28,14 +27,11 @@ public sealed class PublishIntegrationEventWhenRouteStarted : INotificationHandl
         _publisher = publisher;
     }
 
-    public async Task Handle(OutboxMessage<DomainEvent> notification, CancellationToken cancellationToken = default)
+    public async Task Handle(OutboxMessage<RouteStartedEvent> notification, CancellationToken cancellationToken = default)
     {
-        if (notification.Content is not RouteStartedEvent routeStarted)
-        {
-            return;
-        }
+        var routeStarted = notification.Content;
 
-        var message = new RouteStarted(notification.CorrelationId, Source)
+        var message = new RouteStarted(OutboxCorrelation.Resolve(notification.CorrelationId), Source)
         {
             RouteId = routeStarted.RouteId
         };

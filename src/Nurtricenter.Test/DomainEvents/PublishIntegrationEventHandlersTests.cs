@@ -17,7 +17,9 @@ public class PublishIntegrationEventHandlersTests
 {
     private readonly Mock<IExternalPublisher> _publisher = new();
 
-    private static OutboxMessage<DomainEvent> WithCorrelation(DomainEvent domainEvent) =>
+    // Joseco's OutboxProcessor dispatches OutboxMessage<{runtime event type}>, so each handler is
+    // exercised with exactly that concrete type.
+    private static OutboxMessage<TEvent> WithCorrelation<TEvent>(TEvent domainEvent) where TEvent : DomainEvent =>
         new(domainEvent) { CorrelationId = "corr-123" };
 
     [Fact]
@@ -208,15 +210,21 @@ public class PublishIntegrationEventHandlersTests
     }
 
     [Fact]
-    public async Task Handler_IgnoresUnrelatedDomainEvents()
+    public async Task Handler_WithoutStoredCorrelationId_FallsBackToTheAmbientTraceId()
     {
-        var handler = new PublishIntegrationEventWhenDeliveryFailed(
-            NullLogger<PublishIntegrationEventWhenDeliveryFailed>.Instance, _publisher.Object);
+        // The processor rebuilds the message from Content only, so CorrelationId is null; the
+        // original trace travels as the parent of the processor's "Joseco.Outbox" activity.
+        using var activity = new System.Diagnostics.Activity("outbox-dispatch");
+        activity.Start();
 
-        await handler.Handle(WithCorrelation(new CourierCreatedEvent(Guid.NewGuid(), "Jane Doe", CourierStatus.Available)), CancellationToken.None);
+        var handler = new PublishIntegrationEventWhenRouteStarted(
+            NullLogger<PublishIntegrationEventWhenRouteStarted>.Instance, _publisher.Object);
 
-        _publisher.Verify(
-            p => p.PublishAsync(It.IsAny<DeliveryFailed>(), It.IsAny<string>(), It.IsAny<bool>()),
-            Times.Never);
+        await handler.Handle(new OutboxMessage<RouteStartedEvent>(new RouteStartedEvent(Guid.NewGuid())), CancellationToken.None);
+
+        _publisher.Verify(p => p.PublishAsync(
+            It.Is<RouteStarted>(c => c.CorrelationId == activity.TraceId.ToString()),
+            NurtricenterExchanges.RouteStarted,
+            true), Times.Once);
     }
 }

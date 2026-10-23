@@ -31,7 +31,12 @@ public class UnitOfWorkTests
             cfg.RegisterServicesFromAssembly(typeof(Nurtricenter.Application.DependencyInjection).Assembly));
 
         // Mirror AddApplication(): the publish handlers belong to the worker host only.
-        services.RemoveAll<INotificationHandler<OutboxMessage<DomainEvent>>>();
+        foreach (var descriptor in services
+                     .Where(d => Nurtricenter.Application.DependencyInjection.IsOutboxPublishHandler(d.ServiceType))
+                     .ToList())
+        {
+            services.Remove(descriptor);
+        }
 
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IOutboxDatabase<DomainEvent>>(sp => (UnitOfWork)sp.GetRequiredService<IUnitOfWork>());

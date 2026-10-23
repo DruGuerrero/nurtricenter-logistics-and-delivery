@@ -1,7 +1,6 @@
 namespace Nurtricenter.Application.DomainEvents;
 
 using Joseco.Communication.External.Contracts.Services;
-using Joseco.DDD.Core.Abstractions;
 using Joseco.Outbox.Contracts.Model;
 using MediatR;
 using Microsoft.Extensions.Logging;
@@ -12,7 +11,7 @@ using Nurtricenter.Core.Domain.Delivery.Events;
 /// Translates the outbox message that carries <see cref="DeliveryFailedEvent"/> into the
 /// <see cref="DeliveryFailed"/> external contract and publishes it to RabbitMQ.
 /// </summary>
-public sealed class PublishIntegrationEventWhenDeliveryFailed : INotificationHandler<OutboxMessage<DomainEvent>>
+public sealed class PublishIntegrationEventWhenDeliveryFailed : INotificationHandler<OutboxMessage<DeliveryFailedEvent>>
 {
     public const string Destination = NurtricenterExchanges.DeliveryFailed;
     public const string Source = "nurtricenter";
@@ -28,14 +27,11 @@ public sealed class PublishIntegrationEventWhenDeliveryFailed : INotificationHan
         _publisher = publisher;
     }
 
-    public async Task Handle(OutboxMessage<DomainEvent> notification, CancellationToken cancellationToken = default)
+    public async Task Handle(OutboxMessage<DeliveryFailedEvent> notification, CancellationToken cancellationToken = default)
     {
-        if (notification.Content is not DeliveryFailedEvent deliveryFailed)
-        {
-            return;
-        }
+        var deliveryFailed = notification.Content;
 
-        var message = new DeliveryFailed(notification.CorrelationId, Source)
+        var message = new DeliveryFailed(OutboxCorrelation.Resolve(notification.CorrelationId), Source)
         {
             DeliveryId = deliveryFailed.DeliveryId,
             RouteId = deliveryFailed.RouteId,

@@ -175,6 +175,50 @@ public class ServiceRegistrationTests
     }
 
     [Fact]
+    public async Task StartAsync_UnderMinimalHosting_DefersRegistrationUntilTheServerHasBound()
+    {
+        // Minimal hosting starts hosted services BEFORE Kestrel listens: the bound port is unknown
+        // during StartAsync and only becomes readable once ApplicationStarted fires.
+        int? boundPort = null;
+        _portResolverMock.Setup(r => r.ResolveBoundPort()).Returns(() => boundPort);
+
+        using var started = new CancellationTokenSource();
+        var lifetime = new Mock<IHostApplicationLifetime>();
+        lifetime.Setup(l => l.ApplicationStarted).Returns(started.Token);
+        lifetime.Setup(l => l.ApplicationStopping).Returns(CancellationToken.None);
+
+        AgentServiceRegistration? captured = null;
+        _agentMock
+            .Setup(a => a.ServiceRegister(It.IsAny<AgentServiceRegistration>(), It.IsAny<CancellationToken>()))
+            .Callback<AgentServiceRegistration, CancellationToken>((registration, _) => captured = registration)
+            .ReturnsAsync(new WriteResult<AgentServiceRegistration>());
+
+        var sut = new ServiceRegistration(
+            _consulClientMock.Object,
+            Options.Create(new ServiceRegistrationOptions
+            {
+                ServiceDiscoveryAddress = "http://localhost:8500",
+                ServiceId = "nurtricenter-service-1",
+                ServiceName = "nurtricenter-service",
+                Host = "host.docker.internal",
+                Port = 0
+            }),
+            _portResolverMock.Object,
+            NullLogger<ServiceRegistration>.Instance,
+            lifetime.Object);
+
+        await sut.StartAsync(CancellationToken.None);
+        captured.Should().BeNull("the server has not bound a port yet");
+
+        boundPort = 5036;
+        started.Cancel();
+
+        captured.Should().NotBeNull();
+        captured!.Port.Should().Be(5036);
+        captured.Check!.HTTP.Should().Be("http://host.docker.internal:5036/health");
+    }
+
+    [Fact]
     public async Task StartAsync_WithoutAnyResolvablePort_DoesNotRegisterAndDoesNotThrow()
     {
         _portResolverMock.Setup(r => r.ResolveBoundPort()).Returns((int?)null);

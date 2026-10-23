@@ -55,18 +55,21 @@ public sealed class ServiceRegistration : IHostedService
     private readonly ServiceRegistrationOptions _options;
     private readonly IServerPortResolver _portResolver;
     private readonly ILogger<ServiceRegistration> _logger;
-    private bool _registered;
+    private readonly IHostApplicationLifetime? _lifetime;
+    private volatile bool _registered;
 
     public ServiceRegistration(
         IConsulClient consulClient,
         IOptions<ServiceRegistrationOptions> options,
         IServerPortResolver portResolver,
-        ILogger<ServiceRegistration> logger)
+        ILogger<ServiceRegistration> logger,
+        IHostApplicationLifetime? lifetime = null)
     {
         _consulClient = consulClient;
         _options = options.Value;
         _portResolver = portResolver;
         _logger = logger;
+        _lifetime = lifetime;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -80,6 +83,22 @@ public sealed class ServiceRegistration : IHostedService
             return;
         }
 
+        if (_options.Port > 0 || _lifetime is null)
+        {
+            await RegisterAsync(cancellationToken);
+            return;
+        }
+
+        // No configured port, so the advertised port is the one Kestrel binds. Under minimal
+        // hosting (WebApplication) hosted services start BEFORE the server listens, so the bound
+        // address is still empty here. Registration is therefore deferred until the application
+        // has fully started and IServerAddressesFeature is populated.
+        var lifetime = _lifetime;
+        lifetime.ApplicationStarted.Register(() => _ = RegisterAsync(lifetime.ApplicationStopping));
+    }
+
+    private async Task RegisterAsync(CancellationToken cancellationToken)
+    {
         var host = string.IsNullOrWhiteSpace(_options.Host) ? DefaultHost : _options.Host.Trim();
         if (!TryResolvePort(out var port))
         {

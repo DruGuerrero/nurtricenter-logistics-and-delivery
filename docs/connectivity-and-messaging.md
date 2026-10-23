@@ -83,10 +83,16 @@ its mutations persist through the outer save.
 service:
 
 1. Polls rows where `Processed = false`, ordered by creation time.
-2. Dispatches each row as a MediatR notification (`OutboxMessage<DomainEvent>`).
-3. The `PublishIntegrationEventWhen*` handlers (registered **only** in the worker) filter by
-   the row's `Content` type, map the domain event to its **integration contract** and publish
-   it to the contract's exchange.
+2. Re-wraps each row as a **new** `OutboxMessage<{runtime event type}>` — e.g.
+   `OutboxMessage<CourierCreatedEvent>` — and publishes it through MediatR. Only `Content` is
+   copied: the stored `CorrelationId` is dropped, and the original trace instead travels as the
+   parent of the processor's `Joseco.Outbox` activity (the worker listens to that source so
+   `OutboxCorrelation` can recover it).
+3. The `PublishIntegrationEventWhen*` handlers (registered **only** in the worker) are each
+   registered for that concrete type, map the domain event to its **integration contract** and
+   publish it to the contract's exchange. A handler registered for
+   `OutboxMessage<DomainEvent>` would **never run** (generic classes are not variant) while the
+   row is still marked processed — `OutboxProcessorDispatchTests` guards this.
 4. The library marks the row `Processed` after a successful dispatch. If publishing throws,
    the row stays unprocessed and is retried on the next poll — that is the at-least-once
    guarantee; consumers must be idempotent.
@@ -107,7 +113,7 @@ sequenceDiagram
     U->>DB: SaveChanges — aggregates + outbox row, ONE transaction
     Note over DB: row is Processed=false
     P->>DB: poll unprocessed rows
-    P->>H: dispatch OutboxMessage<DomainEvent>
+    P->>H: dispatch OutboxMessage<{concrete event}> (e.g. OutboxMessage<CourierCreatedEvent>)
     H->>R: PublishAsync(contract, exchange, declareDestination: true)
     P->>DB: mark row Processed
 ```
@@ -278,14 +284,19 @@ check and everything external in one stroke.
 
 #### Step 1 — Run the API
 
-The local `appsettings.Development.json` already points at `http://localhost:8500`:
+The local `appsettings.Development.json` points at `http://localhost:8500` and advertises
+`Host: host.docker.internal` — Consul runs **inside a container**, so it must probe the API
+through the Docker host alias; `localhost` would be the Consul container itself and the check
+would stay critical.
 
 ```bash
-dotnet run --project src/Nurtricenter.Api/Nurtricenter.Api.csproj
+dotnet run --project src/Nurtricenter.Api/Nurtricenter.Api.csproj --launch-profile http
 ```
 
 Expected:
-- Log line: `Registered nurtricenter-service-1 (nurtricenter-service) in Consul at localhost with an HTTP check on http://localhost:5036/health.`
+- Log line: `Registered nurtricenter-service-1 (nurtricenter-service) in Consul at host.docker.internal with an HTTP check on http://host.docker.internal:5036/health.`
+- If the check stays critical, Kestrel may only be listening on loopback: run with
+  `ASPNETCORE_URLS=http://0.0.0.0:5036` so the Docker host alias can reach it.
 - Consul UI (<http://localhost:8500>) shows `nurtricenter-service` with a **passing** check.
 - `curl http://localhost:5036/health` returns:
 
@@ -307,6 +318,10 @@ full `CourierCreatedEvent` (with `type` discriminator) and whose `traceId`/`corr
 filled from the HTTP request.
 
 #### Step 3 — Run the worker
+
+The worker reads `src/Nurtricenter.WorkerService/appsettings.Development.json` (git-ignored; copy
+`appsettings.Development.template.json` and fill in the connection string). Its launch profile
+sets `DOTNET_ENVIRONMENT=Development` so that file is loaded.
 
 ```bash
 dotnet run --project src/Nurtricenter.WorkerService/Nurtricenter.WorkerService.csproj
@@ -375,6 +390,7 @@ credentials or `ServiceRegistration` section — those live in git-ignored
 | Worker can't connect even though RabbitMQ is up | Broker not on host port 5672 (the library ignores `RabbitMqSettings:Port`) |
 | Consul shows no service | `ServiceRegistration__ServiceDiscoveryAddress` blank/malformed (malformed throws at startup); or no port resolvable (check `Port` / launch profile) |
 | `/health` returns 503 in development | Postgres unreachable — this is the intended gate (Consul then stops advertising the instance) |
+| Outbox rows become `processed = true` but no message reaches RabbitMQ | A publish handler is registered for the wrong notification type. It must handle `OutboxMessage<{concrete event}>`, which is what Joseco's processor dispatches |
 | Published messages have empty payloads | A domain event gained a public parameterless constructor — Newtonsoft deserializes through it. The serialization guard test fails first |
 | `TypeLoadException` mentioning MediatR 12 at startup | Joseco's `AddOutbox<T>()` was called — it is incompatible with MediatR 14; outbox services must be registered manually (see `Nurtricenter.Infrastructure.DependencyInjection.AddOutboxServices`) |
 | API returns 404 behind the gateway | Route not versioned (`/api/v1/...`) or service unhealthy/not registered in Consul |
