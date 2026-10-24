@@ -10,21 +10,17 @@
 #    dotnet build src/Nurtricenter.Api/Nurtricenter.Api.csproj
 #    dotnet build src/Nurtricenter.WorkerService/Nurtricenter.WorkerService.csproj
 #
-#  Database: the platform Postgres (database `nurtricenter`, created by the platform's
-#  postgres-init script). Override it — e.g. with your Neon connection string — by
-#  exporting NURTRICENTER_DB_CONNECTION before `docker compose up`. Never commit it.
+#  Database: ms5's Neon cloud database, NOT the platform Postgres. The connection string
+#  is a secret, so it is read from `.env` next to this file (gitignored), never committed:
 #
-#  Schema: NOT applied on boot. Run once against the platform database:
+#    ConnectionStrings__DefaultConnection=Host=...neon.tech;Database=...;Username=...;Password=...;SSL Mode=Require
 #
-#    cd src/Nurtricenter.Infrastructure
-#    dotnet ef database update --startup-project ../Nurtricenter.Api \
-#      --connection "Host=localhost;Port=5433;Database=nurtricenter;Username=dev-only;Password=dev-only-password"
+#  Without that file both containers start and fail on their first query. The schema
+#  already lives in Neon; migrations are applied there by hand, as always.
 #
 #  ASPNETCORE_ENVIRONMENT is Production on purpose: bin/Debug carries the gitignored
-#  appsettings.Development.json (personal DB + localhost Consul), which must not leak in.
+#  appsettings.Development.json (localhost Consul/RabbitMQ), which must not leak in.
 # =============================================================================
-
-x-nurtricenter-db: &nurtricenter-db "${NURTRICENTER_DB_CONNECTION:-Host=nur-tricenter-postgres;Port=5432;Database=nurtricenter;Username=dev-only;Password=dev-only-password}"
 
 services:
   nurtricenter-api:
@@ -35,10 +31,12 @@ services:
     command: ["dotnet", "Nurtricenter.Api.dll"]
     volumes:
       - ./src/Nurtricenter.Api/bin/Debug/net10.0:/app:ro
+    env_file:
+      - path: .env
+        required: false
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__DefaultConnection: *nurtricenter-db
       ClinicService__BaseUrl: "https://763708cb-6809-4a65-be56-fe140385a461.mock.pstmn.io"
       branchCoordinates__latitude: "-17.768853725548713"
       branchCoordinates__longitude: "-63.18276022365929"
@@ -53,7 +51,7 @@ services:
     networks: [nur-tricenter-net]
     depends_on:
       consul:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       # Shell TCP probe: the aspnet runtime image ships no curl.
       test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/127.0.0.1/8080' || exit 1"]
@@ -71,9 +69,11 @@ services:
     command: ["dotnet", "Nurtricenter.WorkerService.dll"]
     volumes:
       - ./src/Nurtricenter.WorkerService/bin/Debug/net10.0:/app:ro
+    env_file:
+      - path: .env
+        required: false
     environment:
       DOTNET_ENVIRONMENT: Production
-      ConnectionStrings__DefaultConnection: *nurtricenter-db
       # Joseco.Communication.External.RabbitMQ 1.1.0 ignores the port: the broker must answer on 5672.
       RabbitMqSettings__Host: "nur-tricenter-rabbitmq"
       RabbitMqSettings__UserName: "guest"
@@ -82,6 +82,7 @@ services:
     networks: [nur-tricenter-net]
     depends_on:
       rabbitmq:
+        # service_healthy: the outbox processor publishes on its first poll.
         condition: service_healthy
     # Not registered in Consul: the worker serves no HTTP. Its liveness is a container
     # concern — if the OutboxProcessor host dies, the outbox stops draining silently.

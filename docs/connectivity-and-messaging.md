@@ -256,8 +256,9 @@ reachable, remove the mirror:
 
 `nurtricenter.compose.yml` (repo root) is the platform variant: `nur-tricenter-local` includes it,
 bind-mounts `bin/Debug/net10.0` of the API and the worker, registers the API in Consul as
-`nurtricenter` and uses the platform Postgres database `nurtricenter`. To point it at another
-database, set `NURTRICENTER_DB_CONNECTION`. See the `nur-tricenter-local` README, section "ms5".
+`nurtricenter`. It uses ms5's own Neon database, **not** the platform Postgres. The connection
+string is read from a gitignored `.env` at the repo root; copy `.env.example` to create it. See the
+`nur-tricenter-local` README, section "ms5".
 
 ---
 
