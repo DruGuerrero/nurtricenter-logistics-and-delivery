@@ -2,22 +2,47 @@
 
 ![Logistics and Delivery Domain Model](docs/Logistics-and-delivery-domain-model.png)
 
-## Ejecución con Docker
+## Documentación
+
+| Documento | Contenido |
+| --- | --- |
+| [docs/running-locally.md](docs/running-locally.md) | **Guía paso a paso** para levantar ms5 junto con toda la plataforma (gateway, Consul, RabbitMQ, catálogo, identity, ms4) en tu máquina. **Empieza aquí.** |
+| [docs/connectivity-and-messaging.md](docs/connectivity-and-messaging.md) | Cómo funciona la integración: outbox transaccional, publicación a RabbitMQ, registro en Consul, ruteo del gateway, contratos en el shared kernel, troubleshooting. |
+| [docs/TESTING.md](docs/TESTING.md) | Suite de tests. |
+| [docs/domain-model.md](docs/domain-model.md) | Modelo de dominio. |
+
+## Ejecución en la plataforma (recomendado)
+
+ms5 se ejecuta normalmente dentro del stack de la plataforma (`nur-tricenter-local`), que incluye
+`nurtricenter.compose.yml` de este repo. Resumen (detalle en [docs/running-locally.md](docs/running-locally.md)):
+
+1. Configura el token de GitHub (`read:packages`) para el feed privado de los shared kernels:
+   `NUGET_USERNAME` / `NUGET_TOKEN` como variables de entorno de usuario.
+2. Clona los repos hermanos con `nur-tricenter-local\scripts\setup-project.ps1`.
+3. Si esta carpeta no se llama `nurtricenter-logistics-and-delivery`, define `NURTRICENTER_REPO_DIR` con su nombre.
+4. Copia `.env.example` a `.env` y coloca la cadena de conexión de Neon (`.env` no se versiona).
+5. Ejecuta `powershell -ExecutionPolicy Bypass -File ..\nur-tricenter-local\scripts\start-stack.ps1`.
+6. Prueba: `POST http://localhost:15005/api/nurtricenter/v1/couriers` con `{"fullName":"Jane Doe"}`.
+
+## Ejecución con Docker (ms5 solo, sin plataforma)
 
 ### Requisitos
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) instalado y en ejecución.
+- `NUGET_USERNAME` / `NUGET_TOKEN` definidos: la restauración usa el feed privado de Nur-tricenter
+  (paquete `Nur.Tricenter.Integration`).
 
 ### 1. Construir la imagen
 
 ```powershell
-docker build -t nurtricenter-ms5:0.1.0 .
+docker build --secret id=nuget_username,env=NUGET_USERNAME --secret id=nuget_token,env=NUGET_TOKEN -t aguerreroc/nurtricenter-ms5:0.2.0 .
 ```
 
 | Parte                 | Significado                                                                                                                                                       |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `docker build`        | Comando de Docker que construye una imagen a partir del `Dockerfile` encontrado en el contexto de compilación.                                                    |
-| `-t nurtricenter-api` | Etiqueta la imagen resultante con el nombre `nurtricenter-api` para poder referenciarla más adelante.                                                             |
+| `--secret id=...,env=...` | Pasa las credenciales del feed NuGet como secretos de BuildKit: solo existen durante el `dotnet restore` y **nunca** quedan en una capa de la imagen.          |
+| `-t aguerreroc/nurtricenter-ms5:0.2.0` | Etiqueta la imagen resultante para poder referenciarla más adelante. La imagen contiene la API y el worker (`/app/worker`).                      |
 | `.`                   | El contexto de compilación: el directorio actual. Su contenido se envía al demonio de Docker y se usa como directorio de trabajo para los pasos del `Dockerfile`. |
 
 ### 2. Ejecutar el contenedor
@@ -30,7 +55,7 @@ docker run --rm -p 8080:8080 `
     -e "ClinicService__BaseUrl=https://763708cb-6809-4a65-be56-fe140385a461.mock.pstmn.io" `
     -e "branchCoordinates__latitude=-17.768853725548713" `
     -e "branchCoordinates__longitude=-63.18276022365929" `
-    nurtricenter-ms5:0.1.0
+    aguerreroc/nurtricenter-ms5:0.2.0
 ```
 
 | Parte               | Significado                                                                                                                                                                                                                                         |
@@ -40,7 +65,7 @@ docker run --rm -p 8080:8080 `
 | `-p 8080:8080`      | Publica el puerto `8080` del contenedor en el puerto `8080` del host (`host:contenedor`).                                                                                                                                                           |
 | `` ` ``             | Carácter de continuación de línea de PowerShell: permite dividir el comando en varias líneas.                                                                                                                                                       |
 | `-e "NOMBRE=valor"` | Establece una variable de entorno dentro del contenedor. El `__` (doble guion bajo) se mapea a `:` en la configuración de .NET, por lo que `ConnectionStrings__DefaultConnection` establece la configuración `ConnectionStrings:DefaultConnection`. |
-| `nurtricenter-api`  | La imagen construida en el paso anterior.                                                                                                                                                                                                           |
+| `aguerreroc/nurtricenter-ms5:0.2.0` | La imagen construida en el paso anterior.                                                                                                                                                                                           |
 
 Variables de entorno:
 
@@ -66,10 +91,10 @@ El repositorio también incluye un `docker-compose.yml` con dos servicios: `api`
 (el worker publica los eventos de dominio al broker RabbitMQ mediante el outbox transaccional).
 Las variables de entorno van inline en el archivo; edita el placeholder
 `ConnectionStrings__DefaultConnection` (y `RabbitMqSettings__Host`) antes de levantar los
-servicios. La imagen debe construirse con el `Dockerfile` actualizado, que publica ambos proyectos:
+servicios, sin commitear esos valores. La imagen debe construirse con el `Dockerfile` actualizado, que publica ambos proyectos:
 
 ```powershell
-docker build -t aguerreroc/nurtricenter-ms5:0.1.0 .
+docker build --secret id=nuget_username,env=NUGET_USERNAME --secret id=nuget_token,env=NUGET_TOKEN -t aguerreroc/nurtricenter-ms5:0.2.0 .
 docker compose up
 ```
 
@@ -89,7 +114,13 @@ base cae, `/health` responde 503 y Consul deja de anunciar la instancia.
 
 Los eventos de dominio se publican a exchanges fanout de RabbitMQ (uno por evento, ver
 `contracts/NurtricenterExchanges.cs`); la cola `nurtricenter.default` acumula el historial
-completo y nunca se consume. Las colas por consumidor (p. ej. `ms5.*`) las declara cada
-microservicio consumidor.
+completo y nunca se consume. Las colas por consumidor (p. ej. `ms4.route-completed`) las declara
+cada microservicio consumidor en `rabbitmq-definitions.json` de `nur-tricenter-local`.
+
+Los contratos de integración viven en el shared kernel (`Nur.Tricenter.Integration`, namespace
+`Nur.Tricenter.Integration.Messages.Logistics`), para que publicador y consumidores compilen
+contra los mismos tipos. Cambiar un contrato = PR al repo `nur-tricenter-shared-kernels` + subir
+la versión del paquete aquí.
 
 Guía completa del flujo y de cómo probarlo: [docs/connectivity-and-messaging.md](docs/connectivity-and-messaging.md).
+Guía paso a paso para ejecutarlo localmente: [docs/running-locally.md](docs/running-locally.md).
