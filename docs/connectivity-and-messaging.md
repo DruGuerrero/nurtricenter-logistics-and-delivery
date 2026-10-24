@@ -4,6 +4,10 @@ This document explains how Nurtricenter (ms5) connects to the rest of the platfo
 discovered and routed to through the shared API gateway, and how its domain events reach other
 microservices through RabbitMQ. It covers the implementation flow end-to-end and how to test it.
 
+> **Just want to run it?** Follow [running-locally.md](running-locally.md). It's a step-by-step
+> guide to bringing up ms5 with the whole platform (gateway, Consul, RabbitMQ, catalog, identity,
+> ms4) on your machine.
+
 ---
 
 ## 1. Overview
@@ -272,10 +276,11 @@ string is read from a gitignored `.env` at the repo root; copy `.env.example` to
 ### 5.1 Automated tests
 
 ```bash
-dotnet test src/Nurtricenter.Test/Nurtricenter.Test.csproj
+dotnet test src/Nurtricenter.Api/Nurtricenter.Api.slnx
 ```
 
-The suite (271 tests) includes connectivity-specific guards on top of the domain/use-case tests:
+Restoring needs the private feed token (`NUGET_USERNAME` / `NUGET_TOKEN`, see §4.1). The suite
+(273 tests) includes connectivity-specific guards on top of the domain/use-case tests:
 
 | Test | What it guards |
 |---|---|
@@ -287,6 +292,7 @@ The suite (271 tests) includes connectivity-specific guards on top of the domain
 | `DomainEvents/OutboxChainCoverageTests` | every domain event has both its `SaveInOutboxWhen*` and `PublishIntegrationEventWhen*` handler |
 | `DomainEvents/PublishIntegrationEventHandlersTests` | mapping, destination exchange, `declareDestination: true`, `CorrelationId`/`Source`, unrelated events ignored |
 | `WorkerService/*` | `RabbitMqSettings` required, publisher registration, publish handlers only exist in the worker host, queue bound to exactly the 10 registry exchanges |
+| `WorkerService/OutboxProcessorDispatchTests` | runs the **real** Joseco `OutboxProcessor` with the real DI wiring: a staged row is published to its exchange and marked processed (guards the `OutboxMessage<{concrete event}>` dispatch contract) |
 | `Integration/ServiceDiscoveryGatingTests` | the test host reads discovery as **disabled** |
 
 **Hermetic integration tests:** `IntegrationTestWebAppFactory` boots the real host, which loads
@@ -297,23 +303,31 @@ check and everything external in one stroke.
 
 ### 5.2 Manual end-to-end test
 
+The quickest end-to-end check is the full platform stack: [running-locally.md §4–§5](running-locally.md#4-start-the-stack)
+walks through it, from starting the stack to the message showing up in RabbitMQ. The steps
+below are the **debugging variant**: the API and worker run from your IDE against the platform's
+Consul and RabbitMQ, so you can set breakpoints anywhere in the chain.
+
 #### Prerequisites
 
-1. **Database migration** — the outbox table must exist. Run from `src/Nurtricenter.Infrastructure`
-   (done manually by the developer, not by tooling):
+1. **Database schema**: the outbox table (`outbox."outboxMessage"`) must exist in Neon. The
+   migration that creates it is already in the repo; apply pending migrations by hand from
+   `src/Nurtricenter.Infrastructure`:
 
    ```bash
-   dotnet ef migrations add AddOutboxMessages --startup-project ../Nurtricenter.Api
    dotnet ef database update --startup-project ../Nurtricenter.Api
    ```
 
-2. **Docker Desktop** running, for Consul and RabbitMQ (or the full platform stack in
-   `nur-tricenter-local`, which also includes the gateway):
+2. **Platform infrastructure** running (Consul, RabbitMQ, Postgres), with the ms5 containers
+   stopped so they don't compete with your local processes:
 
-   ```bash
-   docker run -d --name consul-dev -p 8500:8500 hashicorp/consul:1.20 agent -dev -client=0.0.0.0
-   docker run -d --name rabbitmq-dev -p 5672:5672 -p 15672:15672 rabbitmq:3-management-alpine
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File "..\nur-tricenter-local\scripts\start-stack.ps1"
+   docker stop nur-tricenter-nurtricenter-api nur-tricenter-nurtricenter-workerservice
    ```
+
+   (Or, without the gateway and other services, run only
+   `..\nur-tricenter-local\scripts\start-infrastructure.ps1`.)
 
    > RabbitMQ **must** be reachable on host port **5672**: the Joseco 1.1.0 library builds its
    > connection from Host/User/Password only and silently ignores `RabbitMqSettings:Port`.
@@ -330,10 +344,12 @@ dotnet run --project src/Nurtricenter.Api/Nurtricenter.Api.csproj --launch-profi
 ```
 
 Expected:
-- Log line: `Registered nurtricenter-service-1 (nurtricenter-service) in Consul at host.docker.internal with an HTTP check on http://host.docker.internal:5036/health.`
+- Log line: `Registered <ServiceId> (<ServiceName>) in Consul at host.docker.internal with an HTTP check on http://host.docker.internal:5036/health.`
+  Registration runs once Kestrel has bound its port (`ApplicationStarted`), not before.
 - If the check stays critical, Kestrel may only be listening on loopback: run with
   `ASPNETCORE_URLS=http://0.0.0.0:5036` so the Docker host alias can reach it.
-- Consul UI (<http://localhost:8500>) shows `nurtricenter-service` with a **passing** check.
+- Consul UI (<http://localhost:8500>) shows your `ServiceName` with a **passing** check. Use
+  `nurtricenter` as the name to keep the same gateway path the platform uses.
 - `curl http://localhost:5036/health` returns:
 
   ```json
@@ -371,20 +387,25 @@ Expected:
   `Source: "nurtricenter"`, `CorrelationId` filled, full payload.
 - The outbox row's `processed` flag is now `true` and `processedOn` is set.
 
-#### Step 4 — Route through the gateway (platform stack only)
+#### Step 4 — Route through the gateway
 
-With `nur-tricenter-local` running (`docker compose up`), call the gateway instead of the API
-directly (host port `15005`):
+Call the gateway (host port `15005`) instead of the API directly:
 
-```bash
-curl -X POST http://localhost:15005/api/nurtricenter/v1/couriers \
-     -H "Content-Type: application/json" \
-     -d '{"fullName":"Via Gateway"}'
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:15005/api/nurtricenter/v1/couriers `
+  -ContentType 'application/json' -Body '{"fullName":"Via Gateway"}'
 ```
 
-Expected: same `201` — the gateway discovered `nurtricenter` in Consul and rewrote
-`/api/nurtricenter/v1/couriers` → `/api/v1/couriers` upstream. Calling a service that is not
-registered (or unhealthy) returns `404` from the gateway, because no route exists.
+Expected: the same `201`. The gateway discovered `nurtricenter` in Consul and rewrote
+`/api/nurtricenter/v1/couriers` → `/api/v1/couriers` upstream. The gateway log shows
+`Proxying to http://<host>:<port>/api/v1/couriers`.
+
+- A **GET** on that URL (e.g. from a browser) returns `405 Method Not Allowed`. The route works;
+  the endpoint is POST-only. The only ms5 GET is `/v1/couriers/{id}/route/today`.
+- A service that isn't registered, or is unhealthy, gets `404` from the gateway: no route exists.
+  The gateway refreshes from Consul every 30 s.
+- ms5 endpoints are anonymous. Catalog, identity and ms4 require a JWT from identity; see
+  [running-locally.md §5.5](running-locally.md#55-another-service-through-the-gateway-login-needed).
 
 ### 5.3 Failure-path checks
 
@@ -410,11 +431,18 @@ registered (or unhealthy) returns `404` from the gateway, because no route exist
 | `RabbitMqSettings__Host` | Worker | — | Broker host; **must be reachable on 5672** |
 | `RabbitMqSettings__UserName` / `__Password` / `__VirtualHost` | Worker | — | Broker credentials (guest/guest/`/` locally) |
 | `RabbitMqSettings__MaxRetryAttempts` / `__RetryBaseDelayMilliseconds` | Worker | 3 / 500 | Consumer-side retry policy (used by services that consume; this service only produces) |
-| `ConnectionStrings__DefaultConnection` | API + Worker | — | PostgreSQL connection string |
+| `ConnectionStrings__DefaultConnection` | API + Worker | — | PostgreSQL connection string (ms5's Neon database) |
+| `NUGET_USERNAME` / `NUGET_TOKEN` | build / restore | — | GitHub user + classic token (`read:packages`) for the private Nur-tricenter feed |
+| `NURTRICENTER_REPO_DIR` | platform compose + `start-stack` | `nurtricenter-logistics-and-delivery` | Name of the ms5 folder next to `nur-tricenter-local` |
 
 Tracked `appsettings.json` files deliberately contain **no** connection strings, broker
-credentials or `ServiceRegistration` section — those live in git-ignored
-`appsettings.Development.json` files or environment variables.
+credentials or `ServiceRegistration` section. Those live in gitignored places:
+
+| Where ms5 runs | Configuration comes from |
+|---|---|
+| Platform stack (`nurtricenter.compose.yml`) | `environment:` in the compose file, plus `ConnectionStrings__DefaultConnection` from `.env` in the repo root |
+| `dotnet run` / IDE / `dotnet ef` | `src/*/appsettings.Development.json` |
+| Standalone image (`docker-compose.yml`) | `environment:` in that file (fill in the `CHANGE_ME` placeholders locally) |
 
 ---
 
@@ -429,7 +457,15 @@ credentials or `ServiceRegistration` section — those live in git-ignored
 | Outbox rows become `processed = true` but no message reaches RabbitMQ | A publish handler is registered for the wrong notification type. It must handle `OutboxMessage<{concrete event}>`, which is what Joseco's processor dispatches |
 | Published messages have empty payloads | A domain event gained a public parameterless constructor — Newtonsoft deserializes through it. The serialization guard test fails first |
 | `TypeLoadException` mentioning MediatR 12 at startup | Joseco's `AddOutbox<T>()` was called — it is incompatible with MediatR 14; outbox services must be registered manually (see `Nurtricenter.Infrastructure.DependencyInjection.AddOutboxServices`) |
-| API returns 404 behind the gateway | Route not versioned (`/api/v1/...`) or service unhealthy/not registered in Consul |
+| API returns 404 behind the gateway | Route not versioned (`/api/v1/...`) or service unhealthy/not registered in Consul (the gateway refreshes every 30 s) |
+| `405` through the gateway | The route works; the endpoint doesn't accept that HTTP method (e.g. a browser GET on a POST-only URL) |
+| `Could not resolve the port to advertise` at API startup | No `ServiceRegistration:Port` and no bound port yet. Registration is deferred to `ApplicationStarted` for this reason; set `Port` explicitly in containers |
+| Consul check stays critical for a locally run API | Consul runs in a container: advertise `Host: host.docker.internal` and listen on `0.0.0.0`, not `localhost` |
+| `relation "outbox.outboxMessage" does not exist` in the worker | The connection string points at a database without ms5's schema (e.g. `.env` missing, so not Neon) |
+| `NU1102` for a freshly published `Nur.Tricenter.*` version | NuGet's HTTP cache predates the release: `dotnet restore --no-http-cache` |
+| Docker build fails restoring `Nur.Tricenter.*` | Build without the feed secrets: add `--secret id=nuget_username,env=NUGET_USERNAME --secret id=nuget_token,env=NUGET_TOKEN` |
+
+More symptoms from running the whole platform are in [running-locally.md §9](running-locally.md#9-troubleshooting).
 
 ---
 
@@ -441,6 +477,9 @@ credentials or `ServiceRegistration` section — those live in git-ignored
 | Outbox + unit of work | `src/Nurtricenter.Infrastructure/Data/{UnitOfWork,EfCoreOutboxService}.cs`, `Observability/OutboxTracingService.cs` |
 | Outbox handlers | `src/Nurtricenter.Application/DomainEvents/` |
 | Worker host | `src/Nurtricenter.WorkerService/` |
-| Contracts + exchanges | `contracts/` |
+| Integration contracts | shared kernel: `nur-tricenter-shared-kernels/nur-tricenter-integration/Messages/Logistics/` (package `Nur.Tricenter.Integration`) |
+| Exchange registry | `contracts/NurtricenterExchanges.cs` |
+| Platform compose (ms5 part) | `nurtricenter.compose.yml` (+ `.env`, from `.env.example`) |
+| Feed configuration | `NuGet.config`, Dockerfile (BuildKit secrets) |
 | Health writer + wiring | `src/Nurtricenter.Api/{Utils/HealthReportWriter.cs, DependencyInjection.cs}` |
 | Integration test factory (hermetic gating) | `src/Nurtricenter.Test/Integration/IntegrationTestWebAppFactory.cs` |

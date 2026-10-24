@@ -4,12 +4,18 @@ This document outlines the testing strategy, architecture, and key decisions for
 
 ## 1. Overview
 
-The test suite consists of **199 tests** (195 Unit Tests, 4 Integration Tests) and is built using:
+The test suite consists of **273 tests** (268 Unit Tests, 5 Integration Tests) and is built using:
 - **xUnit**: The core testing framework.
 - **FluentAssertions**: For highly readable, fluent-style assertions.
 - **Moq**: For mocking dependencies like Repositories and external HTTP services.
 - **Microsoft.AspNetCore.Mvc.Testing**: For spinning up an in-memory test API server (`WebApplicationFactory`).
 - **Entity Framework Core In-Memory**: Used to simulate the database in integration tests.
+
+Run everything with `dotnet test src/Nurtricenter.Api/Nurtricenter.Api.slnx`. Restoring needs the
+private Nur-tricenter feed (`NUGET_USERNAME` / `NUGET_TOKEN`; see [running-locally.md §3.1](running-locally.md#31-store-the-github-token-for-the-private-nuget-feed)).
+The tests never touch Consul, RabbitMQ or the real database. The connectivity guards (outbox,
+Consul registration, RabbitMQ wiring, the real outbox processor dispatch) are listed in
+[connectivity-and-messaging.md §5.1](connectivity-and-messaging.md#51-automated-tests).
 
 ---
 
