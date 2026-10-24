@@ -1,6 +1,16 @@
+# syntax=docker/dockerfile:1
+#
+# Restore needs the private Nur-tricenter feed (shared kernel). The credentials are BuildKit
+# secrets, so they exist only while the restore step runs and never land in an image layer:
+#
+#   docker build --secret id=nuget_username,env=NUGET_USERNAME \
+#                --secret id=nuget_token,env=NUGET_TOKEN \
+#                -t aguerreroc/nurtricenter-ms5:0.2.0 .
+
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
+COPY NuGet.config                                                      ./
 COPY contracts/Nurtricenter.Contracts.csproj                          contracts/
 COPY src/Nurtricenter.Api/Nurtricenter.Api.csproj                      src/Nurtricenter.Api/
 COPY src/Nurtricenter.Application/Nurtricenter.Application.csproj      src/Nurtricenter.Application/
@@ -8,8 +18,10 @@ COPY src/Nurtricenter.Core/Nurtricenter.Core.csproj                    src/Nurtr
 COPY src/Nurtricenter.Infrastructure/Nurtricenter.Infrastructure.csproj src/Nurtricenter.Infrastructure/
 COPY src/Nurtricenter.WorkerService/Nurtricenter.WorkerService.csproj  src/Nurtricenter.WorkerService/
 
-RUN dotnet restore src/Nurtricenter.Api/Nurtricenter.Api.csproj
-RUN dotnet restore src/Nurtricenter.WorkerService/Nurtricenter.WorkerService.csproj
+RUN --mount=type=secret,id=nuget_username,env=NUGET_USERNAME \
+    --mount=type=secret,id=nuget_token,env=NUGET_TOKEN \
+    dotnet restore src/Nurtricenter.Api/Nurtricenter.Api.csproj \
+ && dotnet restore src/Nurtricenter.WorkerService/Nurtricenter.WorkerService.csproj
 
 COPY contracts/ contracts/
 COPY src/ src/

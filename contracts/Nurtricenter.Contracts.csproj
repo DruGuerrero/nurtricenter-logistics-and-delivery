@@ -1,12 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    This project holds what belongs to THIS microservice and nothing else: the integration
-    contracts it publishes to RabbitMQ and the exchange registry those contracts are routed by.
-
-    Why it is separate from src/: the contracts are the service's public surface, consumed by
-    other microservices (and their tests) without dragging in the service's internals. The
-    Application layer maps domain events onto these records; the WorkerService publishes them.
+    The integration contracts themselves live in the shared kernel
+    (Nur.Tricenter.Integration.Messages.Logistics), so publisher and consumers compile against the
+    same types. This project keeps only what the kernel cannot hold: the exchange registry
+    (NurtricenterExchanges). The kernel's naming rule forbids domain words outside message types.
   -->
 
   <PropertyGroup>
@@ -17,12 +15,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!--
-      IntegrationMessage is the vendor base record every cross-service message extends. It has no
-      transport logic, so declaring it here does not drag a broker into a project that only
-      declares contracts.
-    -->
-    <PackageReference Include="Joseco.Communication.External.Contracts" Version="1.0.1" />
+    <!-- Restored from the Nur-tricenter feed (see NuGet.config at the repository root). -->
+    <PackageReference Include="Nur.Tricenter.Integration" Version="1.0.10" />
   </ItemGroup>
 
 </Project>

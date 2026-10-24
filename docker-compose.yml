@@ -5,7 +5,7 @@ name: nurtricenter-ms5
 # ServiceRegistration__* values (ServiceName=nurtricenter, Host=<container name>, Port=8080).
 #
 # The image must be built with the updated Dockerfile (which publishes the worker too):
-#   docker build -t aguerreroc/nurtricenter-ms5:0.2.0 .
+#   docker build --secret id=nuget_username,env=NUGET_USERNAME --secret id=nuget_token,env=NUGET_TOKEN -t aguerreroc/nurtricenter-ms5:0.2.0 .
 # Fill the ConnectionStrings__DefaultConnection placeholders before `docker compose up`.
 
 services:

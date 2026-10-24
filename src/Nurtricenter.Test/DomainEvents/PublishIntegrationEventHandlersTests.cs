@@ -7,6 +7,7 @@ using Joseco.Outbox.Contracts.Model;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Nurtricenter.Application.DomainEvents;
+using Nur.Tricenter.Integration.Messages.Logistics;
 using Nurtricenter.Contracts.Integration;
 using Nurtricenter.Core.Domain.Courier.Enums;
 using Nurtricenter.Core.Domain.Courier.Events;

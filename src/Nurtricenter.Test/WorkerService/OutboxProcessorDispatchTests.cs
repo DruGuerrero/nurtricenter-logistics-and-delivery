@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Moq;
 using Nurtricenter.Application;
+using Nur.Tricenter.Integration.Messages.Logistics;
 using Nurtricenter.Contracts.Integration;
 using Nurtricenter.Core.Domain.Courier;
 using Nurtricenter.Infrastructure;

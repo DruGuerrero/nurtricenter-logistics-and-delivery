@@ -4,6 +4,7 @@ using Joseco.Communication.External.Contracts.Services;
 using Joseco.Outbox.Contracts.Model;
 using MediatR;
 using Microsoft.Extensions.Logging;
+using Nur.Tricenter.Integration.Messages.Logistics;
 using Nurtricenter.Contracts.Integration;
 using Nurtricenter.Core.Domain.Route.Events;
 

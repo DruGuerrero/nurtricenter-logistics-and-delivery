@@ -212,7 +212,7 @@ sequenceDiagram
 
 ## 4. Event catalog
 
-| Domain event | Integration contract (`contracts/`) | Exchange | `EventType` |
+| Domain event | Integration contract (shared kernel) | Exchange | `EventType` |
 |---|---|---|---|
 | `CourierCreatedEvent` | `CourierCreated` | `courier-created` | `Courier.Created` |
 | `CourierStatusChangedEvent` | `CourierStatusChanged` | `courier-status-changed` | `Courier.StatusChanged` |
@@ -225,32 +225,37 @@ sequenceDiagram
 | `DeliveryCompletedEvent` | `DeliveryCompleted` | `delivery-completed` | `Delivery.Completed` |
 | `DeliveryFailedEvent` | `DeliveryFailed` | `delivery-failed` | `Delivery.Failed` |
 
-Adding an event means: a constant in `NurtricenterExchanges`, a contract, a `SaveInOutboxWhen*`
+Adding an event means: a constant in `NurtricenterExchanges`, a contract in the shared kernel, a `SaveInOutboxWhen*`
 handler, a `PublishIntegrationEventWhen*` handler and a line in `All`. The test suite fails the
 build if any of these steps is forgotten (see §5.1).
 
 ### 4.1 Shared kernel (the canonical contracts)
 
 The platform keeps every cross-service message in the shared kernel, so publisher and consumer
-compile against the same type. The ten contracts above are in
+compile against the same type. The ten contracts above live in
 `nur-tricenter-shared-kernels/nur-tricenter-integration/Messages/Logistics/`
-(namespace `Nur.Tricenter.Integration.Messages.Logistics`, package `Nur.Tricenter.Integration`
-**1.0.10**), with the same property names and `EventType` values as `contracts/`.
+(namespace `Nur.Tricenter.Integration.Messages.Logistics`). ms5 consumes them as the package
+`Nur.Tricenter.Integration` **1.0.10**, referenced from `contracts/Nurtricenter.Contracts.csproj`.
+That project keeps only `NurtricenterExchanges`, because the kernel's naming test forbids domain
+words in non-message types.
 
-`contracts/` here is a **temporary mirror**: `Nur.Tricenter.*` packages come from the private
-GitHub Packages feed, and that feed has no credentials on this machine yet. Consumers deserialize
-by their own type, so the two copies are compatible on the wire **as long as the shapes stay
-identical**. Change a contract in the kernel first. Once 1.0.10 is published and the feed is
-reachable, remove the mirror:
+The package comes from the private Nur-tricenter GitHub Packages feed (`NuGet.config` at the
+repo root). Restoring needs a classic GitHub token with `read:packages` in the environment:
 
-1. Add `NuGet.config` with the `Nur-tricenter` source (copy it from the kernel repo) and set
-   `NUGET_USERNAME` / `NUGET_TOKEN`.
-2. In `contracts/Nurtricenter.Contracts.csproj`, add `PackageReference Include="Nur.Tricenter.Integration" Version="1.0.10"`
-   and delete the ten record files, keeping `NurtricenterExchanges.cs`. The exchange registry
-   stays here, because the kernel's naming test forbids domain words in non-message types.
-3. Add `using Nur.Tricenter.Integration.Messages.Logistics;` next to
-   `using Nurtricenter.Contracts.Integration;` in the publish handlers and tests. Keep the old
-   using: `NurtricenterExchanges` stays in that namespace.
+```powershell
+[Environment]::SetEnvironmentVariable("NUGET_USERNAME", "<github-user>", "User")
+[Environment]::SetEnvironmentVariable("NUGET_TOKEN",    "<token>",       "User")
+```
+
+A Docker build passes the same values as BuildKit secrets, which never reach an image layer:
+
+```powershell
+docker build --secret id=nuget_username,env=NUGET_USERNAME --secret id=nuget_token,env=NUGET_TOKEN -t aguerreroc/nurtricenter-ms5:0.2.0 .
+```
+
+To change a contract:
+1. Open a PR to the kernel that edits the record and bumps `<Version>` in `Directory.Build.props`.
+2. Once that version is published, bump the `PackageReference` here.
 
 ### 4.2 Running inside the platform stack
 
