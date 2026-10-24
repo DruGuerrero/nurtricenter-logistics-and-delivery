@@ -229,6 +229,36 @@ Adding an event means: a constant in `NurtricenterExchanges`, a contract, a `Sav
 handler, a `PublishIntegrationEventWhen*` handler and a line in `All`. The test suite fails the
 build if any of these steps is forgotten (see §5.1).
 
+### 4.1 Shared kernel (the canonical contracts)
+
+The platform keeps every cross-service message in the shared kernel, so publisher and consumer
+compile against the same type. The ten contracts above are in
+`nur-tricenter-shared-kernels/nur-tricenter-integration/Messages/Logistics/`
+(namespace `Nur.Tricenter.Integration.Messages.Logistics`, package `Nur.Tricenter.Integration`
+**1.0.10**), with the same property names and `EventType` values as `contracts/`.
+
+`contracts/` here is a **temporary mirror**: `Nur.Tricenter.*` packages come from the private
+GitHub Packages feed, and that feed has no credentials on this machine yet. Consumers deserialize
+by their own type, so the two copies are compatible on the wire **as long as the shapes stay
+identical**. Change a contract in the kernel first. Once 1.0.10 is published and the feed is
+reachable, remove the mirror:
+
+1. Add `NuGet.config` with the `Nur-tricenter` source (copy it from the kernel repo) and set
+   `NUGET_USERNAME` / `NUGET_TOKEN`.
+2. In `contracts/Nurtricenter.Contracts.csproj`, add `PackageReference Include="Nur.Tricenter.Integration" Version="1.0.10"`
+   and delete the ten record files, keeping `NurtricenterExchanges.cs`. The exchange registry
+   stays here, because the kernel's naming test forbids domain words in non-message types.
+3. Add `using Nur.Tricenter.Integration.Messages.Logistics;` next to
+   `using Nurtricenter.Contracts.Integration;` in the publish handlers and tests. Keep the old
+   using: `NurtricenterExchanges` stays in that namespace.
+
+### 4.2 Running inside the platform stack
+
+`nurtricenter.compose.yml` (repo root) is the platform variant: `nur-tricenter-local` includes it,
+bind-mounts `bin/Debug/net10.0` of the API and the worker, registers the API in Consul as
+`nurtricenter` and uses the platform Postgres database `nurtricenter`. To point it at another
+database, set `NURTRICENTER_DB_CONNECTION`. See the `nur-tricenter-local` README, section "ms5".
+
 ---
 
 ## 5. Testing

@@ -5,12 +5,12 @@ name: nurtricenter-ms5
 # ServiceRegistration__* values (ServiceName=nurtricenter, Host=<container name>, Port=8080).
 #
 # The image must be built with the updated Dockerfile (which publishes the worker too):
-#   docker build -t aguerreroc/nurtricenter-ms5:0.1.0 .
+#   docker build -t aguerreroc/nurtricenter-ms5:0.2.0 .
 # Fill the ConnectionStrings__DefaultConnection placeholders before `docker compose up`.
 
 services:
   api:
-    image: aguerreroc/nurtricenter-ms5:0.1.0
+    image: aguerreroc/nurtricenter-ms5:0.2.0
     container_name: nurtricenter-ms5-api
     ports:
       - "8080:8080"
@@ -35,7 +35,7 @@ services:
       retries: 3
 
   worker:
-    image: aguerreroc/nurtricenter-ms5:0.1.0
+    image: aguerreroc/nurtricenter-ms5:0.2.0
     container_name: nurtricenter-ms5-worker
     command: ["dotnet", "worker/Nurtricenter.WorkerService.dll"]
     environment:
