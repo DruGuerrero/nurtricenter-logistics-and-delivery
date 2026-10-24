@@ -44,30 +44,33 @@ docker run --rm -p 8080:8080 `
 
 Variables de entorno:
 
-| Variable                               | Propósito                                                                 |
-| -------------------------------------- | ------------------------------------------------------------------------- |
-| `ConnectionStrings__DefaultConnection` | Cadena de conexión a PostgreSQL (Neon) usada por la capa de persistencia. |
-| `ClinicService__BaseUrl`               | URL base del servicio externo de clínicas con el que se integra la API.   |
-| `branchCoordinates__latitude`          | Latitud de la sucursal usada como punto de partida de las entregas.       |
-| `branchCoordinates__longitude`         | Longitud de la sucursal usada como punto de partida de las entregas.      |
+| Variable                                 | Propósito                                                                                           |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `ConnectionStrings__DefaultConnection`   | Cadena de conexión a PostgreSQL (Neon) usada por la capa de persistencia.                           |
+| `ClinicService__BaseUrl`                 | URL base del servicio externo de clínicas con el que se integra la API.                             |
+| `branchCoordinates__latitude`            | Latitud de la sucursal usada como punto de partida de las entregas.                                 |
+| `branchCoordinates__longitude`           | Longitud de la sucursal usada como punto de partida de las entregas.                                |
+| `HttpsRedirection__Enabled`              | `false` detrás del gateway (TLS termina upstream); `true` solo si este proceso es el borde TLS.     |
+| `ServiceRegistration__ServiceDiscoveryAddress` | URL del agente Consul (ej. `http://host.docker.internal:8500`). En blanco = sin registro.      |
+| `ServiceRegistration__ServiceName`       | Nombre con el que el gateway rutea (`/api/{nombre}/...`). La plataforma usa `nurtricenter`.         |
+| `ServiceRegistration__ServiceId`         | Identificador único de esta instancia (obligatorio si hay más de una réplica).                      |
+| `ServiceRegistration__Host` / `__Port`   | Dirección y puerto que el gateway usa para llegar a esta instancia.                                 |
+| `RabbitMqSettings__Host`                 | Broker RabbitMQ (solo el worker). El puerto debe ser 5672 — la librería ignora `__Port`.            |
+| `RabbitMqSettings__UserName` / `__Password` / `__VirtualHost` | Credenciales del broker (solo el worker).                                               |
 
 Una vez en ejecución, verifica el health check del contenedor en <http://localhost:8080/health>.
 
 ### Para ejecutar con Docker Compose
 
-El repositorio también incluye un `docker-compose.yml`, que lee las variables de entorno desde un archivo `.env` en la raíz del proyecto (a continuación se muestran las variables, la cadena de conexión a la base de datos no es la real por temas de seguridad y la correcta se muestra en el `.env`):
-
-```dotenv
-ConnectionStrings__DefaultConnection=HOST; Database=neondb; Username=neondb_owner; Password=PASSWORD; SSL Mode=VerifyFull; Channel Binding=Require;
-ClinicService__BaseUrl=https://763708cb-6809-4a65-be56-fe140385a461.mock.pstmn.io
-branchCoordinates__latitude=-17.768853725548713
-branchCoordinates__longitude=-63.18276022365929
-```
-
-Luego construye e inicia los servicios:
+El repositorio también incluye un `docker-compose.yml` con dos servicios: `api` y `worker`
+(el worker publica los eventos de dominio al broker RabbitMQ mediante el outbox transaccional).
+Las variables de entorno van inline en el archivo; edita el placeholder
+`ConnectionStrings__DefaultConnection` (y `RabbitMqSettings__Host`) antes de levantar los
+servicios. La imagen debe construirse con el `Dockerfile` actualizado, que publica ambos proyectos:
 
 ```powershell
-docker compose up --build
+docker build -t aguerreroc/nurtricenter-ms5:0.1.0 .
+docker compose up
 ```
 
 Para detener y eliminar los contenedores:
@@ -75,3 +78,18 @@ Para detener y eliminar los contenedores:
 ```powershell
 docker compose down
 ```
+
+### Integración con el gateway (Consul + RabbitMQ)
+
+El servicio se registra en Consul cuando `ServiceRegistration__ServiceDiscoveryAddress` tiene
+valor, y el gateway compartido (YARP + Consul) lo expone en `/api/nurtricenter/*` reescribiendo a
+`/api/*` — por eso todos los endpoints están versionados (`/api/v1/...`). Consul sondea
+`/health`, que incluye un chequeo de PostgreSQL solo cuando el registro está habilitado; si la
+base cae, `/health` responde 503 y Consul deja de anunciar la instancia.
+
+Los eventos de dominio se publican a exchanges fanout de RabbitMQ (uno por evento, ver
+`contracts/NurtricenterExchanges.cs`); la cola `nurtricenter.default` acumula el historial
+completo y nunca se consume. Las colas por consumidor (p. ej. `ms5.*`) las declara cada
+microservicio consumidor.
+
+Guía completa del flujo y de cómo probarlo: [docs/connectivity-and-messaging.md](docs/connectivity-and-messaging.md).
