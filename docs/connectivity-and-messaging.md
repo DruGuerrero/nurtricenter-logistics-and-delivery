@@ -235,7 +235,7 @@ The platform keeps every cross-service message in the shared kernel, so publishe
 compile against the same type. The ten contracts above live in
 `nur-tricenter-shared-kernels/nur-tricenter-integration/Messages/Logistics/`
 (namespace `Nur.Tricenter.Integration.Messages.Logistics`). ms5 consumes them as the package
-`Nur.Tricenter.Integration` **1.0.10**, referenced from `contracts/Nurtricenter.Contracts.csproj`.
+`Nur.Tricenter.Integration` **1.1.0** (the version every platform service pins), referenced from `contracts/Nurtricenter.Contracts.csproj`.
 That project keeps only `NurtricenterExchanges`, because the kernel's naming test forbids domain
 words in non-message types.
 
