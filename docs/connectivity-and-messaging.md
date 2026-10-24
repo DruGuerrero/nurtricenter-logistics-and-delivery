@@ -433,7 +433,7 @@ Expected: the same `201`. The gateway discovered `nurtricenter` in Consul and re
 | `RabbitMqSettings__MaxRetryAttempts` / `__RetryBaseDelayMilliseconds` | Worker | 3 / 500 | Consumer-side retry policy (used by services that consume; this service only produces) |
 | `ConnectionStrings__DefaultConnection` | API + Worker | — | PostgreSQL connection string (ms5's Neon database) |
 | `NUGET_USERNAME` / `NUGET_TOKEN` | build / restore | — | GitHub user + classic token (`read:packages`) for the private Nur-tricenter feed |
-| `NURTRICENTER_REPO_DIR` | platform compose + `start-stack` | `nurtricenter-logistics-and-delivery` | Name of the ms5 folder next to `nur-tricenter-local` |
+| `NURTRICENTER_REPO_DIR` | platform compose + `start-stack` | `ms5-logistics-and-delivery` | Name of the ms5 folder next to `nur-tricenter-local` (only needed if it isn't the default) |
 
 Tracked `appsettings.json` files deliberately contain **no** connection strings, broker
 credentials or `ServiceRegistration` section. Those live in gitignored places:
